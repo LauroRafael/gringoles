@@ -9,13 +9,13 @@ import { supabase } from '../lib/supabase';
 import type { Lang } from '../lib/i18n';
 import {
   bankRowToCard,
-  bumpStudyDay,
   deleteCardRow,
   fetchBankBatch,
   insertCardRows,
   loadWorkspace,
   syncProfileMeta,
   upsertCardRow,
+  upsertStudyDay,
 } from '../lib/cloud';
 import type { Card, DayStat, Pile, Tab } from '../types';
 
@@ -175,6 +175,10 @@ interface Store {
   setShowInvite: (v: boolean, msg?: string) => void;
   showTutorial: boolean;
   setShowTutorial: (v: boolean) => void;
+  /** Fila de sincronização pendente (modo offline). Persistida — sobrevive reload. */
+  outbox: { cards: string[]; deletes: string[]; meta: boolean };
+  /** Descarrega a fila na nuvem. Retorna qtd sincronizada. */
+  flushOutbox: () => Promise<number>;
   clearCloudNotice: () => void;
   /** Restaura sessão do Supabase (se houver) e carrega o workspace da nuvem. */
   initAuth: () => Promise<void>;
@@ -220,6 +224,7 @@ export const useStore = create<Store>()(
       showAuth: false,
       showInvite: false,
       showTutorial: false,
+      outbox: { cards: [], deletes: [], meta: false },
       inviteMsg: '',
       mustChangePassword: false,
       cloudNotice: null,
@@ -339,9 +344,10 @@ export const useStore = create<Store>()(
         const s = get();
         set({ cards: s.cards.filter((c) => c.id !== id) });
         if (s.user && supabase) {
-          deleteCardRow(s.user.id, id).catch((e) =>
-            get().setCloudNotice(cloudErr('Não apaguei na nuvem', 'Cloud delete failed', e)),
-          );
+          deleteCardRow(s.user.id, id).catch((e) => {
+            enqueueOutbox({ deletes: [id] });
+            get().setCloudNotice(cloudErr('Não apaguei na nuvem', 'Cloud delete failed', e));
+          });
         }
       },
 
@@ -439,6 +445,62 @@ export const useStore = create<Store>()(
       // ---------- sessão / nuvem ----------
       setShowAuth: (showAuth) => set({ showAuth, authError: null, authNotice: null }),
       setShowTutorial: (showTutorial) => set({ showTutorial }),
+
+      flushOutbox: async () => {
+        const s = get();
+        if (!s.user || !supabase) return 0;
+        const cards = [...new Set(s.outbox.cards)];
+        const deletes = [...new Set(s.outbox.deletes)];
+        const meta = s.outbox.meta;
+        if (cards.length === 0 && deletes.length === 0 && !meta) return 0;
+        let done = 0;
+        const failedCards: string[] = [];
+        const failedDeletes: string[] = [];
+        let metaOk = true;
+        for (const id of deletes) {
+          try {
+            await deleteCardRow(s.user.id, id);
+            done += 1;
+          } catch {
+            failedDeletes.push(id);
+          }
+        }
+        for (const id of cards) {
+          const c = get().cards.find((k) => k.id === id);
+          if (!c) continue; // foi apagado depois — delete cobre
+          try {
+            await upsertCardRow(s.user.id, c);
+            done += 1;
+          } catch {
+            failedCards.push(id);
+          }
+        }
+        if (meta) {
+          try {
+            const cur = get();
+            await syncProfileMeta(s.user.id, {
+              xp: cur.xp, dayStreak: cur.dayStreak, bestStreak: cur.bestStreak, lastStudyDate: cur.lastStudyDate,
+            });
+            const today = new Date().toISOString().slice(0, 10);
+            const day = cur.stats.find((d) => d.date === today);
+            await upsertStudyDay(s.user.id, today, day?.studied ?? 0, day?.known ?? 0);
+            done += 1;
+          } catch {
+            metaOk = false;
+          }
+        }
+        set({
+          outbox: {
+            cards: failedCards,
+            deletes: failedDeletes,
+            meta: meta ? !metaOk : false,
+          },
+        });
+        if (failedCards.length + failedDeletes.length > 0 || !metaOk) {
+          get().setCloudNotice(L() === 'en' ? '⚠️ Some items are still pending sync.' : '⚠️ Alguns itens seguem pendentes de sincronização.');
+        }
+        return done;
+      },
       setShowInvite: (showInvite, inviteMsg) =>
         set((s) => ({ showInvite, inviteMsg: inviteMsg ?? s.inviteMsg })),
       clearCloudNotice: () => set({ cloudNotice: null }),
@@ -598,6 +660,7 @@ export const useStore = create<Store>()(
         labelLearning: s.labelLearning,
         labelKnown: s.labelKnown,
         lang: s.lang,
+        outbox: s.outbox,
       }),
     },
   ),
@@ -605,6 +668,18 @@ export const useStore = create<Store>()(
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** Enfileira para sincronizar depois (offline). */
+function enqueueOutbox(patch: Partial<{ cards: string[]; deletes: string[]; meta: boolean }>): void {
+  const s = useStore.getState();
+  useStore.setState({
+    outbox: {
+      cards: [...s.outbox.cards, ...(patch.cards ?? [])],
+      deletes: [...s.outbox.deletes, ...(patch.deletes ?? [])],
+      meta: s.outbox.meta || patch.meta === true,
+    },
+  });
 }
 
 /** Sobe um card alterado para a nuvem (somente modo full; silencioso no demo). */
@@ -616,20 +691,24 @@ async function syncCard(id: string): Promise<void> {
   try {
     await upsertCardRow(s.user.id, c);
   } catch (e) {
+    enqueueOutbox({ cards: [id] });
     useStore.getState().setCloudNotice(cloudErr('Não salvei na nuvem', 'Cloud save failed', e));
   }
 }
 
-/** Sobe XP/streak + dia de estudo (somente modo full). */
-async function syncProgress(studiedDelta: number, knownDelta: number): Promise<void> {
+/** Sobe XP/streak + dia com totais absolutos (idempotente — seguro repetir no flush). */
+async function syncProgress(_studiedDelta: number, _knownDelta: number): Promise<void> {
   const s = useStore.getState();
   if (!s.user || !supabase) return;
   try {
     await syncProfileMeta(s.user.id, {
       xp: s.xp, dayStreak: s.dayStreak, bestStreak: s.bestStreak, lastStudyDate: s.lastStudyDate,
     });
-    await bumpStudyDay(s.user.id, new Date().toISOString().slice(0, 10), studiedDelta, knownDelta);
+    const today = new Date().toISOString().slice(0, 10);
+    const day = s.stats.find((d) => d.date === today);
+    await upsertStudyDay(s.user.id, today, day?.studied ?? 0, day?.known ?? 0);
   } catch (e) {
+    enqueueOutbox({ meta: true });
     useStore.getState().setCloudNotice(cloudErr('Não salvei na nuvem', 'Cloud save failed', e));
   }
 }

@@ -21,6 +21,14 @@ html, body, #root {
   min-height: 100%;
 }
 
+/* iPhone notch / gesture bar: respeita safe-area no PWA instalado */
+header {
+  padding-top: env(safe-area-inset-top);
+}
+nav {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;

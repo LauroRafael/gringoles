@@ -199,10 +199,21 @@ src/
 
 ---
 
+## 📱 Instalar como app (PWA)
+
+O Gringolês é um **PWA instalável**: funciona em tela cheia, abre offline e avisa quando há versão nova.
+
+- **Android (Chrome):** abra https://gringoles.lartecnologia.com.br → menu ⋮ → **Instalar app**.
+- **iPhone (Safari):** Compartilhar → **Adicionar à Tela de Início** (o app mostra esse guia sozinho).
+- **Offline:** o modo demo e a tela do app funcionam sem internet; logado, o banner 📴 avisa e a **fila sincroniza sozinha** ao reconectar (sem duplicar).
+- **Atualizações:** banner *"Nova versão disponível → Atualizar"* — nunca recarrega no meio do estudo.
+
+Detalhes técnicos: `vite-plugin-pwa` (Workbox, `registerType: prompt`), precache do app shell, `NetworkFirst` p/ Supabase, `StaleWhileRevalidate` p/ dicionário, manifest em `public/manifest.webmanifest`, ícones em `public/icons/`, deploy via `netlify.toml`.
+
 ## 🏗️ Build
 
 ```bash
-# Production build
+# Production build (gera dist/ + sw.js + precache)
 npm run build
 
 # The output will be in the dist/ directory

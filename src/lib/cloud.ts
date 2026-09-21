@@ -168,6 +168,16 @@ export async function syncProfileMeta(userId: string, meta: { xp: number; dayStr
   if (error) throw error;
 }
 
+/** Escrita idempotente do dia (totais absolutos — seguro repetir no flush offline). */
+export async function upsertStudyDay(userId: string, date: string, studied: number, known: number): Promise<void> {
+  const db = mustDb();
+  const { error } = await db.from('study_days').upsert(
+    { user_id: userId, date, studied, known },
+    { onConflict: 'user_id,date' },
+  );
+  if (error) throw error;
+}
+
 export async function bumpStudyDay(userId: string, date: string, studiedDelta: number, knownDelta: number): Promise<void> {
   const db = mustDb();
   const { data, error } = await db.from('study_days').select('studied,known').eq('user_id', userId).eq('date', date).single();

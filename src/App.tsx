@@ -12,6 +12,8 @@ import AdminPanel from './components/AdminPanel';
 import ChangePasswordGate from './components/ChangePasswordGate';
 import TabErrorBoundary from './components/TabErrorBoundary';
 import TutorialModal, { wasTutorialSeen } from './components/TutorialModal';
+import PwaUpdater from './components/PwaUpdater';
+import PwaStatus from './components/PwaStatus';
 import { useStore, applyStoredTheme } from './store/useStore';
 import { STRINGS } from './lib/i18n';
 import type { Tab } from './types';
@@ -73,6 +75,9 @@ export default function App() {
       ) : (
         <>
           <TopBar />
+
+          <PwaUpdater />
+          <PwaStatus />
 
           {dailyAdded !== null && dailyAdded > 0 && (
             <div className="max-w-5xl mx-auto px-4 pt-4">
