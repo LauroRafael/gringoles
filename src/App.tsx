@@ -128,7 +128,7 @@ export default function App() {
                   {t.label}
                   {t.key === 'library' && !user && (
                     <span className="inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-px rounded-full bg-sapphire text-white">
-                      <Lock size={9} /> FULL
+                      <Lock size={9} />
                     </span>
                   )}
                 </span>
