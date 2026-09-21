@@ -106,7 +106,7 @@ export default function StudyDeck() {
         </div>
       )}
 
-      <div className="relative h-[480px]">
+      <div className="relative h-[380px] sm:h-[480px]">
         {/* Próximo card (fundo) */}
         {queue[1] && (
           <div className="absolute inset-0 scale-[0.96] translate-y-3 opacity-60 rounded-3xl bg-slate-200 dark:bg-white/5 border border-slate-200 dark:border-white/10" />
@@ -139,23 +139,23 @@ export default function StudyDeck() {
               <div className={`relative w-full h-full transition-transform duration-500 preserve-3d ${flipped ? 'rotate-y-180' : ''}`}>
                 {/* FRENTE (EN) */}
                 <div className="absolute inset-0 backface-hidden rounded-3xl overflow-hidden shadow-2xl border border-white/20">
-                  <div className={`h-56 bg-gradient-to-br ${current.gradient} flex items-center justify-center relative overflow-hidden`}>
+                  <div className={`h-36 sm:h-56 bg-gradient-to-br ${current.gradient} flex items-center justify-center relative overflow-hidden`}>
                     {photo ? (
                       <>
                         <img src={photo} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-60" />
                         <img src={photo} alt={current.en} className="relative max-w-full max-h-full object-contain drop-shadow-lg" />
                       </>
                     ) : (
-                      <span className="text-8xl drop-shadow-lg">{current.emoji}</span>
+                      <span className="text-6xl sm:text-8xl drop-shadow-lg">{current.emoji}</span>
                     )}
                     <span className="absolute top-3 left-3 text-xs font-black px-2 py-1 rounded-full bg-black/40 text-white">{current.category}</span>
                     <span className="absolute top-3 right-3 text-xs font-black px-2 py-1 rounded-full bg-black/40 text-white">
                       {current.pile === 'new' ? '✨ Nova' : current.pile === 'known' ? `✅ ${labelKnown}` : `📚 ${labelLearning}`}
                     </span>
                   </div>
-                  <div className="bg-white dark:bg-slate-900 h-[calc(100%-14rem)] p-5 flex flex-col items-center justify-center text-center gap-2">
-                    <p className="text-xs font-bold tracking-widest text-celadon">{t.deck_front}</p>
-                    <h2 className="text-4xl font-black">{current.en}</h2>
+                  <div className="bg-white dark:bg-slate-900 h-[calc(100%-9rem)] sm:h-[calc(100%-14rem)] p-3 sm:p-5 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2">
+                    <p className="text-[10px] sm:text-xs font-bold tracking-widest text-celadon">{t.deck_front}</p>
+                    <h2 className="text-3xl sm:text-4xl font-black">{current.en}</h2>
                     <p className="text-lg text-slate-500 dark:text-slate-300">🗣️ "{current.phoneticBR}"</p>
                     <p className="text-sm font-mono text-slate-400">{current.ipa}</p>
                     <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
@@ -170,7 +170,7 @@ export default function StudyDeck() {
                 </div>
 
                 {/* VERSO (PT) */}
-                <div className="absolute inset-0 backface-hidden rotate-y-180 rounded-3xl overflow-hidden shadow-2xl border border-white/20 bg-gradient-to-br from-prussian via-[#0e2a44] to-sapphire text-white p-6 flex flex-col items-center justify-center text-center gap-2">
+                <div className="absolute inset-0 backface-hidden rotate-y-180 rounded-3xl overflow-hidden shadow-2xl border border-white/20 bg-gradient-to-br from-prussian via-[#0e2a44] to-sapphire text-white p-4 sm:p-6 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2">
                   <p className="text-xs font-bold tracking-widest text-azure">{t.deck_back}</p>
                   <h2 className="text-3xl font-black">{current.pt}</h2>
                   <div className="bg-white/10 rounded-2xl p-3 mt-2 w-full">
@@ -223,36 +223,36 @@ export default function StudyDeck() {
       </div>
 
       {/* Botões Tinder */}
-      <div className="flex items-center justify-center gap-4 mt-4">
+      <div className="flex items-center justify-center gap-3 sm:gap-4 mt-3 sm:mt-4">
         <button
           onClick={() => respond(false)}
-          className="group w-16 h-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
+          className="group w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
           title={`${labelLearning} (←)`}
         >
-          <X size={30} strokeWidth={3} />
+          <X size={26} strokeWidth={3} />
         </button>
         <button
           onClick={() => setFlipped((f) => !f)}
-          className="px-4 py-3 rounded-2xl border border-slate-200 dark:border-white/10 text-sm font-bold inline-flex items-center gap-1 active:scale-95"
+          className="px-3 py-2.5 sm:px-4 sm:py-3 rounded-2xl border border-slate-200 dark:border-white/10 text-sm font-bold inline-flex items-center gap-1 active:scale-95"
           title={t.deck_turn_title}
         >
           <Eye size={16} /> {t.deck_turn}
         </button>
         <button
           onClick={() => respond(true)}
-          className="w-16 h-16 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
+          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
           title={`${labelKnown} (→)`}
         >
-          <Check size={30} strokeWidth={3} />
+          <Check size={26} strokeWidth={3} />
         </button>
       </div>
-      <div className="flex items-center justify-center gap-3 mt-3 text-xs">
+      <div className="flex items-center justify-center gap-3 mt-2 sm:mt-3 text-[11px] sm:text-xs">
         <span className="inline-flex items-center gap-1 text-rose-500 font-bold"><X size={12} /> {labelLearning} · {t.deck_fixes}</span>
         <span className="inline-flex items-center gap-1 text-emerald-500 font-bold"><BadgeCheck size={12} /> {labelKnown} · {t.deck_sleeps}</span>
       </div>
 
-      {/* Rebaixar mesmo se souber */}
-      <div className="mt-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center justify-between gap-2">
+      {/* Rebaixar mesmo se souber (só desktop — no mobile o ✗ já rebaixa) */}
+      <div className="mt-2 sm:mt-4 p-2 sm:p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 hidden sm:flex items-center justify-between gap-2">
         <p className="text-xs text-amber-700 dark:text-amber-300 font-semibold">{t.deck_rebox} <b>{labelLearning}</b>:</p>
         <button
           onClick={() => movePile(current.id, 'learning')}

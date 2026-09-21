@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { X, LogIn, KeyRound, Mail, MessageCircle } from 'lucide-react';
+import { X, LogIn, KeyRound, MessageCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { STRINGS } from '../lib/i18n';
-import { ACCESS_EMAIL, ACCESS_WHATSAPP, ACCESS_WHATSAPP_LABEL } from './InviteModal';
+import { ACCESS_WHATSAPP } from './InviteModal';
 
 export default function AuthModal() {
   const { showAuth, setShowAuth, signIn, migrateDemoToCloud, authError, authNotice, lang } = useStore();
@@ -56,11 +56,8 @@ export default function AuthModal() {
             <KeyRound size={13} /> {t.auth_noaccess}
           </p>
           <div className="flex flex-col gap-2 mt-2">
-            <a href={`mailto:${ACCESS_EMAIL}?subject=${encodeURIComponent('Acesso full — Gringolês')}`} className="inline-flex justify-center items-center gap-1 px-3 py-2.5 rounded-xl bg-sapphire text-white text-sm font-black active:scale-95">
-              <Mail size={15} /> {ACCESS_EMAIL}
-            </a>
             <a href={`https://wa.me/${ACCESS_WHATSAPP}?text=${waText}`} target="_blank" rel="noreferrer" className="inline-flex justify-center items-center gap-1 px-3 py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-black active:scale-95">
-              <MessageCircle size={15} /> WhatsApp {ACCESS_WHATSAPP_LABEL}
+              <MessageCircle size={15} /> WhatsApp
             </a>
           </div>
         </div>

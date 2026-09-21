@@ -96,7 +96,7 @@ export default function App() {
             </div>
           )}
 
-          <main className="max-w-5xl mx-auto px-4 py-6 pb-28">
+          <main className="max-w-5xl mx-auto px-3 sm:px-4 py-3 sm:py-6 pb-24 sm:pb-28">
             <TabErrorBoundary tabKey={tab} lang={lang}>
               {tab === 'study' && <StudyDeck />}
               {tab === 'library' && <Library />}
@@ -109,7 +109,7 @@ export default function App() {
 
           {/* Navegação inferior */}
           <nav className="fixed bottom-0 inset-x-0 z-40 backdrop-blur-xl bg-white/85 dark:bg-slate-950/85 border-t border-slate-200 dark:border-white/10">
-            <div className={`max-w-5xl mx-auto px-4 py-2 grid gap-1 ${TABS.length > 5 ? 'grid-cols-6' : 'grid-cols-5'}`}>
+            <div className={`max-w-5xl mx-auto px-3 sm:px-4 py-1.5 sm:py-2 grid gap-1 ${TABS.length > 5 ? 'grid-cols-6' : 'grid-cols-5'}`}>
               {TABS.map((t) => {
                 const active = tab === t.key;
                 return (
