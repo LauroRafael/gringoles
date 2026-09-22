@@ -268,3 +268,20 @@ export async function generateBankBatch(count: number): Promise<BankRow[]> {
   if (error) throw error;
   return data?.words ?? [];
 }
+
+/** Campos completos de uma palavra (Edge Function + Groq, aceita EN ou PT). */
+export interface CompletedFields {
+  en: string; pt: string; phonetic_br: string; ipa: string;
+  example_en: string; example_pt: string; emoji: string; category: string;
+}
+
+/** Completa todos os dados da palavra via IA. Não salva — só devolve os campos. */
+export async function completeWord(text: string): Promise<CompletedFields> {
+  const db = mustDb();
+  const { data, error } = await db.functions.invoke<{ fields: CompletedFields }>('complete-word', {
+    body: { text },
+  });
+  if (error) throw error;
+  if (!data?.fields?.en || !data?.fields?.pt) throw new Error('empty');
+  return data.fields;
+}

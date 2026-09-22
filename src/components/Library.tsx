@@ -4,7 +4,7 @@ import { useStore } from '../store/useStore';
 import { speakEN } from '../lib/speech';
 import { findDuplicate } from '../lib/dedupe';
 import { compressImage } from '../lib/image';
-import { lookupWord } from '../lib/dictionary';
+import { completeWord } from '../lib/cloud';
 import { uploadPhoto } from '../lib/cloud';
 import { STRINGS } from '../lib/i18n';
 import EmojiPicker from './EmojiPicker';
@@ -35,6 +35,9 @@ const emptyForm = {
   en: '', pt: '', phoneticBR: '', ipa: '', exampleEN: '', examplePT: '',
   emoji: '📚', photo: '', photoUrl: '', gradient: GRADIENTS[0], category: 'Minhas',
 };
+
+/** Primeira letra sempre maiúscula (visual + valor). */
+const capFirst = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 export default function Library() {
   const { cards, user, addCard, updateCard, removeCard, movePile, importCards, setShowInvite, lang } = useStore();
@@ -95,31 +98,37 @@ export default function Library() {
   };
 
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [dictBusy, setDictBusy] = useState(false);
-  const [dictMsg, setDictMsg] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState<string | null>(null);
 
-  const fetchDict = async () => {
-    if (!editing || !editing.en.trim() || dictBusy) return;
-    setDictBusy(true);
-    setDictMsg(null);
+  const fetchAI = async () => {
+    if (!editing || aiBusy) return;
+    const seed = editing.en.trim() || editing.pt.trim();
+    if (!seed) return;
+    setAiBusy(true);
+    setAiMsg(null);
     try {
-      const res = await lookupWord(editing.en);
-      if (!res) {
-        setDictMsg(t.lib_dict_nothing);
+      const f = await completeWord(seed);
+      const filled: string[] = [];
+      const patch: Partial<typeof editing> = {};
+      if (f.en && !editing.en.trim()) { patch.en = capFirst(f.en.trim()); filled.push(t.lib_f_en); }
+      if (f.pt && !editing.pt.trim()) { patch.pt = capFirst(f.pt.trim()); filled.push(t.lib_f_pt); }
+      if (f.phonetic_br && !editing.phoneticBR.trim()) { patch.phoneticBR = f.phonetic_br; filled.push(t.lib_f_say); }
+      if (f.ipa && !editing.ipa.trim()) { patch.ipa = f.ipa; filled.push(t.lib_f_ipa); }
+      if (f.example_en && !editing.exampleEN.trim()) { patch.exampleEN = f.example_en; filled.push(t.lib_f_exen); }
+      if (f.example_pt && !editing.examplePT.trim()) { patch.examplePT = f.example_pt; filled.push(t.lib_f_expt); }
+      if (f.emoji && (!editing.emoji.trim() || editing.emoji === '📚')) { patch.emoji = f.emoji; filled.push('Emoji'); }
+      if (f.category && (!editing.category.trim() || editing.category === 'Minhas')) { patch.category = f.category; filled.push(t.lib_f_cat); }
+      if (filled.length > 0) {
+        setEditing({ ...editing, ...patch });
+        setAiMsg(`✅ ${t.lib_dict_filled}: ${filled.join(' + ')}. ${t.lib_dict_check}`);
       } else {
-        const filled: string[] = [];
-        const patch: Partial<typeof editing> = {};
-        if (res.ipa && !editing.ipa.trim()) { patch.ipa = res.ipa; filled.push('IPA'); }
-        if (res.exampleEN && !editing.exampleEN.trim()) { patch.exampleEN = res.exampleEN; filled.push('EN'); }
-        if (filled.length > 0) {
-          setEditing({ ...editing, ...patch });
-          setDictMsg(`✅ ${t.lib_dict_filled}: ${filled.join(' + ')}. ${t.lib_dict_check}`);
-        } else {
-          setDictMsg(`ℹ️ ${t.lib_dict_found} "${res.ipa || res.exampleEN}", ${t.lib_dict_kept}`);
-        }
+        setAiMsg(`ℹ️ ${t.lib_dict_found}, ${t.lib_dict_kept}`);
       }
+    } catch {
+      setAiMsg(t.lib_ai_nothing);
     } finally {
-      setDictBusy(false);
+      setAiBusy(false);
     }
   };
 
@@ -315,13 +324,13 @@ export default function Library() {
               <button onClick={() => setEditing(null)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-white/10"><X size={18} /></button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <label className="text-xs font-bold">{t.lib_f_en}<input value={editing.en} onChange={(e) => { setEditing({ ...editing, en: e.target.value }); setForceDup(false); }} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Water" /></label>
-              <label className="text-xs font-bold">{t.lib_f_pt}<input value={editing.pt} onChange={(e) => setEditing({ ...editing, pt: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Água" /></label>
+              <label className="text-xs font-bold">{t.lib_f_en}<input value={editing.en} onChange={(e) => { setEditing({ ...editing, en: capFirst(e.target.value) }); setForceDup(false); }} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Water" /></label>
+              <label className="text-xs font-bold">{t.lib_f_pt}<input value={editing.pt} onChange={(e) => setEditing({ ...editing, pt: capFirst(e.target.value) })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Água" /></label>
               <div className="col-span-2">
-                <button onClick={fetchDict} disabled={dictBusy || !editing.en.trim()} className="w-full px-3 py-2 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-300 text-xs font-black active:scale-[0.98] disabled:opacity-50">
-                  {dictBusy ? t.lib_dict_busy : t.lib_dict_btn}
+                <button onClick={() => void fetchAI()} disabled={aiBusy || (!editing.en.trim() && !editing.pt.trim())} className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-sapphire to-carolina text-white text-xs font-black active:scale-[0.98] disabled:opacity-50">
+                  {aiBusy ? t.lib_ai_busy : t.lib_ai_btn}
                 </button>
-                {dictMsg && <p className="mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">{dictMsg}</p>}
+                {aiMsg && <p className="mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">{aiMsg}</p>}
               </div>
               <label className="text-xs font-bold">{t.lib_f_say}<input value={editing.phoneticBR} onChange={(e) => setEditing({ ...editing, phoneticBR: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="uóra" /></label>
               <label className="text-xs font-bold">{t.lib_f_ipa}<input value={editing.ipa} onChange={(e) => setEditing({ ...editing, ipa: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="/ˈwɔːtər/" /></label>
