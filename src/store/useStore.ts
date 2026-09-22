@@ -11,6 +11,7 @@ import {
   bankRowToCard,
   deleteCardRow,
   fetchBankBatch,
+  generateBankBatch,
   insertCardRows,
   loadWorkspace,
   syncProfileMeta,
@@ -392,7 +393,13 @@ export const useStore = create<Store>()(
           try {
             const ownedEN = new Set(s.cards.map((c) => normalizeEN(c.en)));
             const ownedBankIds = new Set(s.cards.flatMap((c) => (c.bankId ? [c.bankId] : [])));
-            const batch = await fetchBankBatch(ownedEN, ownedBankIds, s.autoNewPerDay);
+            let batch = await fetchBankBatch(ownedEN, ownedBankIds, s.autoNewPerDay);
+            if (batch.length === 0) {
+              // Bank esgotado: gera novas palavras via Edge Function (Groq). Sem GROQ_API_KEY/falha → segue como antes.
+              try {
+                batch = await generateBankBatch(s.autoNewPerDay);
+              } catch { /* noop */ }
+            }
             if (batch.length === 0) {
               set({ lastAutoAddDate: today });
               return 0;

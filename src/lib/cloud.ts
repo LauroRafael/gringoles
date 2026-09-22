@@ -258,3 +258,13 @@ export async function fetchBankBatch(ownedEN: Set<string>, ownedBankIds: Set<str
   }
   return picked;
 }
+
+/** Bank esgotado: pede à Edge Function que gere novas palavras (Groq) e devolve o lote. */
+export async function generateBankBatch(count: number): Promise<BankRow[]> {
+  const db = mustDb();
+  const { data, error } = await db.functions.invoke<{ words: BankRow[] }>('generate-bank-words', {
+    body: { count },
+  });
+  if (error) throw error;
+  return data?.words ?? [];
+}
