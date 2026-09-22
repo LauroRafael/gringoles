@@ -13,7 +13,7 @@ function visiblePhoto(c: Card): string | undefined {
 }
 
 export default function StudyDeck() {
-  const { cards, pileFilter, answer, movePile, newPerDay, setTab, setPileFilter, lang } = useStore();
+  const { cards, pileFilter, answer, movePile, newPerDay, setTab, lang } = useStore();
   const t = STRINGS[lang];
   const pileName = (p: string) =>
     p === 'new' ? t.pill_new : p === 'known' ? t.pile_known : p === 'learning' ? t.pile_learning : p === 'due' ? t.pile_study : t.pile_all;
@@ -77,7 +77,7 @@ export default function StudyDeck() {
           {t.deck_done_sub}
         </p>
         <div className="flex gap-2 justify-center mt-6 flex-wrap">
-          <button onClick={() => { setPileFilter('all'); }} className="px-4 py-2 rounded-xl bg-sapphire text-white font-bold hover:bg-celadon">{t.deck_view_all}</button>
+          <button onClick={() => setTab('library')} className="px-4 py-2 rounded-xl bg-sapphire text-white font-bold hover:bg-celadon">{t.deck_view_all}</button>
           <button onClick={() => setTab('library')} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 font-bold">{t.deck_add}</button>
           <button onClick={() => setTab('quiz')} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 font-bold">{t.deck_quiz}</button>
         </div>
