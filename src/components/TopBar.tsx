@@ -149,9 +149,19 @@ export default function TopBar() {
       <div className="sm:hidden max-w-5xl mx-auto px-3 pt-3 -mb-2">
         <div className="flex items-center justify-between gap-2">
           {user ? (
-            <span className="text-sm font-black text-slate-700 dark:text-slate-200 truncate">
-              {t.top_hello}, <span className="bg-gradient-to-r from-sapphire to-carolina bg-clip-text text-transparent">{displayName || user.email.split('@')[0]}</span>
-            </span>
+            <>
+              <span className="text-sm font-black text-slate-700 dark:text-slate-200 truncate">
+                {t.top_hello}, <span className="bg-gradient-to-r from-sapphire to-carolina bg-clip-text text-transparent">{displayName || user.email.split('@')[0]}</span>
+              </span>
+              <span className="shrink-0 inline-flex items-center gap-1.5">
+                <span title="XP" className="inline-flex items-center gap-0.5 text-[11px] font-black px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                  ⚡ {xp}
+                </span>
+                <span title="Dias seguidos" className="inline-flex items-center gap-0.5 text-[11px] font-black px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
+                  🔥 {dayStreak}
+                </span>
+              </span>
+            </>
           ) : (
             <>
               <button
