@@ -22,13 +22,13 @@ export function wasTutorialSeen(): boolean {
 const EMOJIS = ['🃏', '🔝', '👆', '🔊', '📦', '🎯', '☁️'];
 
 export default function TutorialModal() {
-  const { showTutorial, setShowTutorial, lang, labelLearning, labelKnown } = useStore();
+  const { showTutorial, setShowTutorial, lang } = useStore();
   const [step, setStep] = useState(0);
   const t = STRINGS[lang];
 
   if (!showTutorial) return null;
 
-  const fill = (s: string) => s.replaceAll('{L}', labelLearning).replaceAll('{K}', labelKnown);
+  const fill = (s: string) => s.replaceAll('{L}', t.pile_learning).replaceAll('{K}', t.pile_known);
   const steps = [1, 2, 3, 4, 5, 6, 7].map((n) => ({
     emoji: EMOJIS[n - 1],
     title: (t as Record<string, string>)[`tut_s${n}_t`],

@@ -37,7 +37,7 @@ const emptyForm = {
 };
 
 export default function Library() {
-  const { cards, user, addCard, updateCard, removeCard, movePile, importCards, setShowInvite, labelLearning, labelKnown, lang } = useStore();
+  const { cards, user, addCard, updateCard, removeCard, movePile, importCards, setShowInvite, lang } = useStore();
   const t = STRINGS[lang];
   /** Demo = vitrine bloqueada: tudo visível, edição só na full. */
   const locked = !user;
@@ -261,7 +261,7 @@ export default function Library() {
             onClick={() => setFilter(f)}
             className={`px-3 py-1.5 rounded-full border active:scale-95 ${filter === f ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent' : 'border-slate-200 dark:border-white/10'}`}
           >
-            {f === 'all' ? `${t.pile_all} (${cards.length})` : f === 'new' ? `${t.pile_new} (${cards.filter((c) => c.pile === 'new').length})` : f === 'learning' ? `${labelLearning} (${cards.filter((c) => c.pile === 'learning').length})` : `${labelKnown} (${cards.filter((c) => c.pile === 'known').length})`}
+            {f === 'all' ? `${t.pile_all} (${cards.length})` : f === 'new' ? `${t.pile_new} (${cards.filter((c) => c.pile === 'new').length})` : f === 'learning' ? `${t.pile_learning} (${cards.filter((c) => c.pile === 'learning').length})` : `${t.pile_known} (${cards.filter((c) => c.pile === 'known').length})`}
           </button>
         ))}
       </div>
@@ -278,7 +278,7 @@ export default function Library() {
               ) : c.emoji}
               <span className="absolute bottom-1.5 left-1.5 text-[10px] font-black px-2 py-0.5 rounded-full bg-black/50 text-white">{c.category}</span>
               <span className="absolute bottom-1.5 right-1.5 text-[10px] font-black px-2 py-0.5 rounded-full bg-black/50 text-white">
-                {c.pile === 'new' ? `✨ ${t.pill_new}` : c.pile === 'known' ? `✅ ${labelKnown}` : `📚 ${labelLearning}`}
+                {c.pile === 'new' ? `✨ ${t.pill_new}` : c.pile === 'known' ? `✅ ${t.pile_known}` : `📚 ${t.pile_learning}`}
               </span>
             </div>
             <div className="p-3">
@@ -295,8 +295,8 @@ export default function Library() {
                 <button onClick={() => (locked ? needFull(t.lib_lock_edit) : openEdit(c))} title={locked ? t.lib_lock_title : t.lib_edit} className="flex-1 inline-flex justify-center items-center gap-1 text-xs font-bold px-2 py-2 rounded-xl border border-slate-200 dark:border-white/10 active:scale-95">
                   {locked ? <Lock size={13} /> : <Pencil size={13} />} {t.lib_edit}
                 </button>
-                <button onClick={() => (locked ? needFull(t.lib_lock_pile) : movePile(c.id, c.pile === 'known' ? 'learning' : 'known'))} title={locked ? t.lib_lock_title : c.pile === 'known' ? `${t.lib_to_known} ${labelLearning}` : `${t.lib_to_learning} ${labelKnown}`} className="flex-1 inline-flex justify-center items-center gap-1 text-xs font-bold px-2 py-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 active:scale-95">
-                  {locked ? <Lock size={13} /> : <RotateCcw size={13} />} {c.pile === 'known' ? t.lib_rever : labelKnown}
+                <button onClick={() => (locked ? needFull(t.lib_lock_pile) : movePile(c.id, c.pile === 'known' ? 'learning' : 'known'))} title={locked ? t.lib_lock_title : c.pile === 'known' ? `${t.lib_to_known} ${t.pile_learning}` : `${t.lib_to_learning} ${t.pile_known}`} className="flex-1 inline-flex justify-center items-center gap-1 text-xs font-bold px-2 py-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 active:scale-95">
+                  {locked ? <Lock size={13} /> : <RotateCcw size={13} />} {c.pile === 'known' ? t.lib_rever : t.pile_known}
                 </button>
                 <button onClick={() => (locked ? needFull(t.lib_lock_del) : (confirm(`${t.lib_del_confirm} "${c.en}"?`) && removeCard(c.id)))} title={locked ? t.lib_lock_title : t.lib_del} className="p-2 rounded-xl bg-rose-500/10 text-rose-500 active:scale-95">{locked ? <Lock size={15} /> : <Trash2 size={15} />}</button>
               </div>
@@ -363,7 +363,7 @@ export default function Library() {
             )}
             {liveDup && !forceDup && (
               <div className="mt-3 px-3 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-xs font-bold text-amber-700 dark:text-amber-300">
-                ⚠️ "{liveDup.en}" {t.lib_dup_warn} ({liveDup.pt} · {liveDup.pile === 'new' ? t.pill_new : liveDup.pile === 'known' ? labelKnown : labelLearning}).
+                ⚠️ "{liveDup.en}" {t.lib_dup_warn} ({liveDup.pt} · {liveDup.pile === 'new' ? t.pill_new : liveDup.pile === 'known' ? t.pile_known : t.pile_learning}).
                 <button
                   onClick={() => { setQ(liveDup.en); setEditing(null); }}
                   className="ml-2 underline"

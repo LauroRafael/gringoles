@@ -36,8 +36,6 @@ interface DemoStash {
   autoNewPerDay: number;
   autoAddEnabled: boolean;
   demoMax: number;
-  labelLearning: string;
-  labelKnown: string;
   lang: Lang;
 }
 
@@ -48,7 +46,7 @@ function stashDemo(s: Store): void {
       bestStreak: s.bestStreak, lastStudyDate: s.lastStudyDate,
       lastAutoAddDate: s.lastAutoAddDate, newPerDay: s.newPerDay,
       autoNewPerDay: s.autoNewPerDay, autoAddEnabled: s.autoAddEnabled,
-      demoMax: s.demoMax, labelLearning: s.labelLearning, labelKnown: s.labelKnown,
+      demoMax: s.demoMax,
       lang: s.lang,
     };
     localStorage.setItem(DEMO_STASH_KEY, JSON.stringify(stash));
@@ -126,9 +124,6 @@ interface Store {
   lastAutoAddDate: string;
   /** Teto de palavras do modo demo (editável no admin). */
   demoMax: number;
-  /** Rótulos das pilhas (editáveis no admin). */
-  labelLearning: string;
-  labelKnown: string;
   /** Idioma da interface (imersão). */
   lang: Lang;
 
@@ -150,8 +145,6 @@ interface Store {
   setAutoNewPerDay: (n: number) => void;
   setAutoAddEnabled: (v: boolean) => void;
   setDemoMax: (n: number) => void;
-  setLabelLearning: (s: string) => void;
-  setLabelKnown: (s: string) => void;
   setLang: (l: Lang) => void;
   /** Injeta as palavras do dia (demo local ou banco na nuvem). Retorna qtd adicionada. */
   ensureDailyWords: () => Promise<number>;
@@ -211,8 +204,6 @@ export const useStore = create<Store>()(
       autoAddEnabled: true,
       lastAutoAddDate: '',
       demoMax: DEMO_MAX_DEFAULT,
-      labelLearning: 'Não sei',
-      labelKnown: 'Sei',
       lang: 'pt',
 
       user: null,
@@ -385,10 +376,6 @@ export const useStore = create<Store>()(
       setAutoNewPerDay: (autoNewPerDay) => set({ autoNewPerDay }),
       setAutoAddEnabled: (autoAddEnabled) => set({ autoAddEnabled }),
       setDemoMax: (demoMax) => set({ demoMax: Math.max(1, demoMax) }),
-      setLabelLearning: (labelLearning) =>
-        set({ labelLearning: labelLearning.trim().slice(0, 24) || 'Não sei' }),
-      setLabelKnown: (labelKnown) =>
-        set({ labelKnown: labelKnown.trim().slice(0, 24) || 'Sei' }),
       setLang: (lang) => {
         set({ lang });
         try {
@@ -575,8 +562,6 @@ export const useStore = create<Store>()(
             newPerDay: stash.newPerDay, autoNewPerDay: stash.autoNewPerDay,
             autoAddEnabled: stash.autoAddEnabled,
             demoMax: stash.demoMax ?? DEMO_MAX_DEFAULT,
-            labelLearning: stash.labelLearning || 'Não sei',
-            labelKnown: stash.labelKnown || 'Sei',
             lang: stash.lang || 'pt',
           });
         }
@@ -657,8 +642,6 @@ export const useStore = create<Store>()(
         autoAddEnabled: s.autoAddEnabled,
         lastAutoAddDate: s.lastAutoAddDate,
         demoMax: s.demoMax,
-        labelLearning: s.labelLearning,
-        labelKnown: s.labelKnown,
         lang: s.lang,
         outbox: s.outbox,
       }),

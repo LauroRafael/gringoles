@@ -1,8 +1,11 @@
 <div align="center">
 
-# 🃏 Gringolês
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
+  <img src="docs/logo-light.png" alt="Gringolês" width="420" />
+</picture>
 
-### Aprenda inglês com flashcards estilo Tinder — com imagem, voz e pronúncia aportuguesada
+### Aprenda inglês com flashcards de swipe — com imagem, voz e pronúncia aportuguesada
 
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -26,15 +29,15 @@
 
 | Feature | Description |
 |---------|-------------|
-| 🃏 **Swipe estilo Tinder** | Arraste para a direita = `Sei` ✅, para a esquerda = `Não sei` ❌ (ou use `←` / `→` / botões, com anti-duplo-toque) |
-| 📦 **Progresso da caixa** | Selo `Caixa X de 3 rumo ao Sei` + barrinha no card — 3 acertos seguidos levam a palavra a `Sei` |
+| 🃏 **Swipe nos cards** | Arraste para a direita = `Dominado` ✅, para a esquerda = `Praticar` ❌ (ou use `←` / `→` / botões, com anti-duplo-toque) |
+| 📦 **Progresso da caixa** | Selo `Caixa X de 3 rumo ao Dominado` + barrinha no card — 3 acertos seguidos levam a palavra a `Dominado` |
 | 📅 **Palavras automáticas** | Todo dia o app injeta N palavras novas do banco curado (~220, offline), sem repetir; quantidade configurável + botão "Adiantar lote" |
 | 🚫 **Anti-duplicadas** | Alerta ao digitar palavra repetida, com opção de ver o card ou salvar mesmo assim; imports relatam ignoradas |
 | 📥 **Import CSV/Anki** | Botão `CSV` aceita `.csv/.tsv/.txt` com colunas `EN;PT;fonética;IPA;exEN;exPT;categoria` (tab = formato Anki) |
 | 🔍 **Ajuda de preenchimento** | Botão no modal busca IPA + exemplo em inglês na API gratuita dictionaryapi.dev (só preenche campos vazios) |
 | 🖼️ **Foto otimizada** | Upload comprimido (máx. 800px, JPEG) + medidor de uso do armazenamento local em Stats |
-| 🔝 **3 pilhas no topo** | `✨ Novas` (sugeridas + manuais) · `📚 Não sei` (para fixar) · `✅ Sei` (dominadas) — com contadores ao vivo |
-| 🔄 **Rever para fixar** | Qualquer palavra, mesmo `Sei`, pode voltar para `Não sei` com 1 clique (botão `Rever` no card) |
+| 🔝 **3 pilhas no topo** | `✨ Novas` (sugeridas + manuais) · `📚 Praticar` (para fixar) · `✅ Dominado` (dominadas) — com contadores ao vivo |
+| 🔄 **Rever para fixar** | Qualquer palavra, mesmo `Dominado`, pode voltar para `Praticar` com 1 clique (botão `Rever` no card) |
 | 🗣️ **Voz + pronúncia BR** | Cada card tem áudio TTS en-US (normal + 🐢 lento), pronúncia aportuguesada (`Water → "uóra"`) e IPA (`/ˈwɔːtər/`) |
 | 🖼️ **Imagem flexível** | Emoji + gradiente por padrão, com **upload de foto própria** por card (salva local, sem internet) |
 | 🌓 **Claro / Escuro** | Toggle no topo com persistência + detecção do sistema |
@@ -119,8 +122,8 @@ Para **parar** o servidor: `Ctrl + C` no terminal onde ele está rodando.
 
 | Tecla | Ação |
 |-------|------|
-| `←` | Não sei ❌ |
-| `→` | Sei ✅ |
+| `←` | Praticar ❌ |
+| `→` | Dominado ✅ |
 | `Espaço` | Virar o card |
 
 ---
@@ -132,11 +135,11 @@ Cada acerto sobe 1 caixa Leitner; cada erro zera e o card **volta imediatamente*
 | Caixa | 0 | 1 | 2 | 3 | 4 | 5 |
 |-------|---|---|---|---|---|---|
 | Próxima revisão | agora | 1 dia | 3 dias | 7 dias | 15 dias | 30 dias |
-| Pilha | 📚 Não sei | 📚 Não sei | 📚 Não sei | ✅ Sei | ✅ Sei | ✅ Sei |
+| Pilha | 📚 Praticar | 📚 Praticar | 📚 Praticar | ✅ Dominado | ✅ Dominado | ✅ Dominado |
 
 - Fila de estudo = **vencidas primeiro** + até **N palavras novas/dia** na fila (configurável em Stats, padrão 20).
 - Lote **automático diário** = N palavras do banco curado injetadas ao abrir o app (configurável em Stats, padrão 5, com liga/desliga). Dedupe por `bankId` + EN normalizado: nunca repete.
-- Botão **Rever** no card força `Sei → Não sei` a qualquer momento.
+- Botão **Rever** no card força `Dominado → Praticar` a qualquer momento.
 
 ---
 
@@ -144,7 +147,7 @@ Cada acerto sobe 1 caixa Leitner; cada erro zera e o card **volta imediatamente*
 
 - **Framework:** React 19 + TypeScript + Vite 8
 - **Styling:** Tailwind CSS 4 (dark mode por classe) + gradientes + glassmorphism
-- **Animações:** Framer Motion (drag/swipe do deck estilo Tinder)
+- **Animações:** Framer Motion (drag/swipe do deck de cards)
 - **Ícones:** lucide-react
 - **Estado:** Zustand + persist (localStorage, chave `anki-flow-v1`)
 - **Voz:** Web Speech API (`speechSynthesis`, `en-US` + `pt-BR`, sem custo/chave)
@@ -190,7 +193,7 @@ src/
     ├── ChangePasswordGate.tsx  # Troca de senha obrigatória (admin 1º acesso)
     ├── AdminPanel.tsx          # Usuários, métricas, banco de palavras
     ├── EmojiPicker.tsx         # emoji-mart em popover com busca
-    ├── StudyDeck.tsx           # Deck Tinder: swipe, flip, TTS, Rever
+    ├── StudyDeck.tsx           # Deck de swipe: flip, TTS, Rever
     ├── Library.tsx             # Busca, filtros, CRUD, upload foto, import/export JSON
     ├── QuizMode.tsx            # Múltipla escolha (10/rodada)
     ├── TypeMode.tsx            # Ditado: ouça e digite

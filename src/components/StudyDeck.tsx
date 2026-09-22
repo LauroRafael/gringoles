@@ -13,10 +13,10 @@ function visiblePhoto(c: Card): string | undefined {
 }
 
 export default function StudyDeck() {
-  const { cards, pileFilter, answer, movePile, newPerDay, setTab, setPileFilter, labelLearning, labelKnown, lang } = useStore();
+  const { cards, pileFilter, answer, movePile, newPerDay, setTab, setPileFilter, lang } = useStore();
   const t = STRINGS[lang];
   const pileName = (p: string) =>
-    p === 'new' ? t.pill_new : p === 'known' ? labelKnown : p === 'learning' ? labelLearning : p === 'due' ? t.pile_study : t.pile_all;
+    p === 'new' ? t.pill_new : p === 'known' ? t.pile_known : p === 'learning' ? t.pile_learning : p === 'due' ? t.pile_study : t.pile_all;
   const [flipped, setFlipped] = useState(false);
   const [leaving, setLeaving] = useState<'left' | 'right' | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
@@ -97,7 +97,7 @@ export default function StudyDeck() {
       {current.pile !== 'known' && (
         <div className="mb-2 px-3 py-2 rounded-2xl bg-azure dark:bg-carolina/10 border border-celadon dark:border-carolina/20">
           <div className="flex items-center justify-between text-[11px] font-bold text-sapphire dark:text-carolina">
-            <span>📦 Caixa {current.box} {t.deck_box_of} {labelKnown}</span>
+            <span>📦 Caixa {current.box} {t.deck_box_of} {t.pile_known}</span>
             <span>{current.box >= 3 ? t.deck_ready : `${t.deck_missing} ${3 - current.box} ${t.deck_missing_end}`}</span>
           </div>
           <div className="h-1.5 rounded-full bg-carolina/20 dark:bg-white/10 mt-1.5 overflow-hidden">
@@ -150,7 +150,7 @@ export default function StudyDeck() {
                     )}
                     <span className="absolute top-3 left-3 text-xs font-black px-2 py-1 rounded-full bg-black/40 text-white">{current.category}</span>
                     <span className="absolute top-3 right-3 text-xs font-black px-2 py-1 rounded-full bg-black/40 text-white">
-                      {current.pile === 'new' ? '✨ Nova' : current.pile === 'known' ? `✅ ${labelKnown}` : `📚 ${labelLearning}`}
+                      {current.pile === 'new' ? '✨ Nova' : current.pile === 'known' ? `✅ ${t.pile_known}` : `📚 ${t.pile_learning}`}
                     </span>
                   </div>
                   <div className="bg-white dark:bg-slate-900 h-[calc(100%-9rem)] sm:h-[calc(100%-14rem)] p-3 sm:p-5 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2">
@@ -213,21 +213,21 @@ export default function StudyDeck() {
           </motion.div>
         </AnimatePresence>
 
-        {/* Carimbos Tinder */}
+        {/* Carimbos de acerto/erro */}
         {leaving === 'right' && (
-          <div className="absolute top-6 right-4 rotate-12 px-4 py-2 rounded-xl border-4 border-emerald-400 text-emerald-400 font-black text-2xl bg-white/80">{labelKnown.toUpperCase()}! ✓</div>
+          <div className="absolute top-6 right-4 rotate-12 px-4 py-2 rounded-xl border-4 border-emerald-400 text-emerald-400 font-black text-2xl bg-white/80">{t.pile_known.toUpperCase()}! ✓</div>
         )}
         {leaving === 'left' && (
-          <div className="absolute top-6 left-4 -rotate-12 px-4 py-2 rounded-xl border-4 border-rose-500 text-rose-500 font-black text-2xl bg-white/80">{labelLearning.toUpperCase()} ✗</div>
+          <div className="absolute top-6 left-4 -rotate-12 px-4 py-2 rounded-xl border-4 border-rose-500 text-rose-500 font-black text-2xl bg-white/80">{t.pile_learning.toUpperCase()} ✗</div>
         )}
       </div>
 
-      {/* Botões Tinder */}
+      {/* Botões de resposta */}
       <div className="flex items-center justify-center gap-3 sm:gap-4 mt-3 sm:mt-4">
         <button
           onClick={() => respond(false)}
           className="group w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
-          title={`${labelLearning} (←)`}
+          title={`${t.pile_learning} (←)`}
         >
           <X size={26} strokeWidth={3} />
         </button>
@@ -241,19 +241,19 @@ export default function StudyDeck() {
         <button
           onClick={() => respond(true)}
           className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
-          title={`${labelKnown} (→)`}
+          title={`${t.pile_known} (→)`}
         >
           <Check size={26} strokeWidth={3} />
         </button>
       </div>
       <div className="flex items-center justify-center gap-3 mt-2 sm:mt-3 text-[11px] sm:text-xs">
-        <span className="inline-flex items-center gap-1 text-rose-500 font-bold"><X size={12} /> {labelLearning} · {t.deck_fixes}</span>
-        <span className="inline-flex items-center gap-1 text-emerald-500 font-bold"><BadgeCheck size={12} /> {labelKnown} · {t.deck_sleeps}</span>
+        <span className="inline-flex items-center gap-1 text-rose-500 font-bold"><X size={12} /> {t.pile_learning} · {t.deck_fixes}</span>
+        <span className="inline-flex items-center gap-1 text-emerald-500 font-bold"><BadgeCheck size={12} /> {t.pile_known} · {t.deck_sleeps}</span>
       </div>
 
       {/* Rebaixar mesmo se souber (só desktop — no mobile o ✗ já rebaixa) */}
       <div className="mt-2 sm:mt-4 p-2 sm:p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 hidden sm:flex items-center justify-between gap-2">
-        <p className="text-xs text-amber-700 dark:text-amber-300 font-semibold">{t.deck_rebox} <b>{labelLearning}</b>:</p>
+        <p className="text-xs text-amber-700 dark:text-amber-300 font-semibold">{t.deck_rebox} <b>{t.pile_learning}</b>:</p>
         <button
           onClick={() => movePile(current.id, 'learning')}
           className="inline-flex items-center gap-1 text-xs font-black px-3 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-400 active:scale-95 whitespace-nowrap"

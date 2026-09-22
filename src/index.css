@@ -21,6 +21,12 @@ html, body, #root {
   min-height: 100%;
 }
 
+/* PWA: bloqueia pinch-zoom e bounce de scroll elástico */
+html, body {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: none;
+}
+
 /* iPhone notch / gesture bar: respeita safe-area no PWA instalado */
 header {
   padding-top: env(safe-area-inset-top);

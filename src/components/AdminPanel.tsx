@@ -19,8 +19,7 @@ interface BankRow {
 
 export default function AdminPanel() {
   const { role, newPerDay, setNewPerDay, autoNewPerDay, setAutoNewPerDay,
-    autoAddEnabled, setAutoAddEnabled, demoMax, setDemoMax, adminCreateUser,
-    labelLearning, setLabelLearning, labelKnown, setLabelKnown, lang } = useStore();
+    autoAddEnabled, setAutoAddEnabled, demoMax, setDemoMax, adminCreateUser, lang } = useStore();
   const t = STRINGS[lang];
   const [nuName, setNuName] = useState('');
   const [nuEmail, setNuEmail] = useState('');
@@ -162,12 +161,6 @@ export default function AdminPanel() {
           </label>
           <label className="font-bold">{t.adm_cfg_cap}
             <input type="number" min={1} max={10000} value={demoMax} onChange={(e) => setDemoMax(Number(e.target.value) || 100)} className="ml-2 w-20 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
-          </label>
-          <label className="font-bold">{t.adm_cfg_lab_learn}
-            <input value={labelLearning} onChange={(e) => setLabelLearning(e.target.value)} maxLength={24} placeholder="Não sei" className="ml-2 w-32 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
-          </label>
-          <label className="font-bold">{t.adm_cfg_lab_known}
-            <input value={labelKnown} onChange={(e) => setLabelKnown(e.target.value)} maxLength={24} placeholder="Sei" className="ml-2 w-32 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
           </label>
           <span className="text-xs text-slate-500">{t.adm_cfg_note}</span>
         </div>
