@@ -4,6 +4,12 @@ import { useStore } from '../store/useStore';
 import { STRINGS } from '../lib/i18n';
 
 const IOS_HIDE_KEY = 'gringoles-ios-guide-hide';
+const INSTALL_HIDE_KEY = 'gringoles-install-hide';
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
 
 function isIOS(): boolean {
   try {
@@ -36,6 +42,8 @@ export default function PwaStatus() {
   });
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [showIos, setShowIos] = useState(false);
+  const [installEvt, setInstallEvt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showInstall, setShowInstall] = useState(false);
 
   useEffect(() => {
     let hidden = false;
@@ -43,6 +51,27 @@ export default function PwaStatus() {
       hidden = localStorage.getItem(IOS_HIDE_KEY) === '1';
     } catch { /* noop */ }
     if (isIOS() && !isStandalone() && !hidden) setShowIos(true);
+  }, []);
+
+  useEffect(() => {
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      try {
+        if (localStorage.getItem(INSTALL_HIDE_KEY) === '1' || isStandalone()) return;
+      } catch { /* noop */ }
+      setInstallEvt(e as BeforeInstallPromptEvent);
+      setShowInstall(true);
+    };
+    const onInstalled = () => {
+      setInstallEvt(null);
+      setShowInstall(false);
+    };
+    window.addEventListener('beforeinstallprompt', onPrompt as EventListener);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt as EventListener);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
   }, []);
 
   useEffect(() => {
@@ -80,6 +109,23 @@ export default function PwaStatus() {
     setShowIos(false);
   };
 
+  const dismissInstall = () => {
+    try {
+      localStorage.setItem(INSTALL_HIDE_KEY, '1');
+    } catch { /* noop */ }
+    setInstallEvt(null);
+    setShowInstall(false);
+  };
+
+  const install = async () => {
+    if (!installEvt) return;
+    try {
+      await installEvt.prompt();
+      await installEvt.userChoice;
+    } catch { /* noop */ }
+    dismissInstall();
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 pt-4 space-y-2">
       {!online && (
@@ -91,6 +137,20 @@ export default function PwaStatus() {
       {online && syncMsg && (
         <div className="px-4 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-sm font-bold animate-pop-in">
           {syncMsg}
+        </div>
+      )}
+      {showInstall && !isStandalone() && (
+        <div className="px-4 py-3 rounded-2xl bg-gradient-to-r from-sapphire to-carolina text-white text-sm animate-pop-in">
+          <p className="font-black">{t.pwa_install_title}</p>
+          <p className="text-xs mt-1 opacity-90">{t.pwa_install_body}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <button onClick={() => void install()} className="px-3 py-1.5 rounded-xl bg-white text-prussian text-xs font-black active:scale-95">
+              {t.pwa_install_cta}
+            </button>
+            <button onClick={dismissInstall} className="px-3 py-1.5 rounded-xl text-xs font-bold underline underline-offset-2 opacity-90 active:scale-95">
+              {t.pwa_install_later}
+            </button>
+          </div>
         </div>
       )}
       {showIos && (

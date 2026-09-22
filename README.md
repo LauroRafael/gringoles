@@ -31,7 +31,7 @@
 |---------|-------------|
 | 🃏 **Swipe nos cards** | Arraste para a direita = `Dominado` ✅, para a esquerda = `Praticar` ❌ (ou use `←` / `→` / botões, com anti-duplo-toque) |
 | 📦 **Progresso da caixa** | Selo `Caixa X de 3 rumo ao Dominado` + barrinha no card — 3 acertos seguidos levam a palavra a `Dominado` |
-| 📅 **Palavras automáticas** | Todo dia o app injeta N palavras novas do banco curado (~220, offline), sem repetir; quantidade configurável + botão "Adiantar lote" |
+| 📅 **Palavras automáticas** | Todo dia o app injeta N palavras novas do banco (307 curadas, offline), sem repetir; quantidade configurável + botão "Adiantar lote". **Bank esgotado?** Gera novas sozinho via Groq (com pronúncia, frases, emoji e categoria) — sem ninguém adicionar manualmente |
 | 🚫 **Anti-duplicadas** | Alerta ao digitar palavra repetida, com opção de ver o card ou salvar mesmo assim; imports relatam ignoradas |
 | 📥 **Import CSV/Anki** | Botão `CSV` aceita `.csv/.tsv/.txt` com colunas `EN;PT;fonética;IPA;exEN;exPT;categoria` (tab = formato Anki) |
 | 🔍 **Ajuda de preenchimento** | Botão no modal busca IPA + exemplo em inglês na API gratuita dictionaryapi.dev (só preenche campos vazios) |
@@ -138,7 +138,8 @@ Cada acerto sobe 1 caixa Leitner; cada erro zera e o card **volta imediatamente*
 | Pilha | 📚 Praticar | 📚 Praticar | 📚 Praticar | ✅ Dominado | ✅ Dominado | ✅ Dominado |
 
 - Fila de estudo = **vencidas primeiro** + até **N palavras novas/dia** na fila (configurável em Stats, padrão 20).
-- Lote **automático diário** = N palavras do banco curado injetadas ao abrir o app (configurável em Stats, padrão 5, com liga/desliga). Dedupe por `bankId` + EN normalizado: nunca repete.
+- Lote **automático diário** = N palavras do banco injetadas ao abrir o app (configurável em Stats, padrão 5, com liga/desliga). Dedupe por `bankId` + EN normalizado: nunca repete.
+- **Geração automática (usuários logados)**: quando o `word_bank` esgota para um usuário, a Edge Function `generate-bank-words` (Supabase) cria novas via **Groq** — EN, PT, fonética aportuguesada, IPA (validado no dictionaryapi.dev), frases EN/PT, emoji e categoria (inclusive categorias novas) — insere no bank e entrega o lote. Sem `GROQ_API_KEY`, o app mantém o comportamento antigo sem quebrar.
 - Botão **Rever** no card força `Dominado → Praticar` a qualquer momento.
 
 ---
@@ -152,6 +153,7 @@ Cada acerto sobe 1 caixa Leitner; cada erro zera e o card **volta imediatamente*
 - **Estado:** Zustand + persist (localStorage, chave `anki-flow-v1`)
 - **Voz:** Web Speech API (`speechSynthesis`, `en-US` + `pt-BR`, sem custo/chave)
 - **Backend:** Supabase (Postgres + Auth e-mail/senha + Storage) via `@supabase/supabase-js`, com RLS por usuário
+- **Geração de palavras:** Edge Function Deno (`generate-bank-words`) + **Groq** (modelo escolhido dinamicamente via `/models`) com validação de IPA no dictionaryapi.dev
 - **Emoji:** `emoji-mart` + `@emoji-mart/data` (Picker vanilla em popover, ~1800 emojis com busca)
 - **Seed:** 50 palavras curadas em `src/data/seed.ts` (essenciais, casa, comida, viagem, verbos, rotina, pessoas, tech, adjetivos)
 - **Banco diário:** ~260 palavras em `src/data/bank1.ts` + `bank2.ts` (+12 categorias, ex: natureza, corpo, roupas) + `bank3.ts` (**46 phrasal verbs**, categoria própria), materializadas por `src/data/bank.ts`
@@ -184,8 +186,9 @@ src/
 │   └── useStore.ts             # Zustand: cards, XP, streaks, stats, filtros, CRUD
 ├── supabase/
 │   ├── schema.sql              # Tabelas + RLS + bucket + trigger de profile
-│   ├── seed_bank.sql           # 261 palavras do word_bank (gerado, idempotente)
-│   └── migration_002_gamification.sql  # XP/streaks em profiles + admin
+│   ├── seed_bank.sql           # 307 palavras do word_bank (gerado, idempotente)
+│   ├── migration_002_gamification.sql  # XP/streaks em profiles + admin
+│   └── functions/generate-bank-words/  # Edge Function: gera palavras via Groq quando o bank esgota
 └── components/
     ├── TopBar.tsx              # Logo + selo DEMO/FULL/ADMIN + XP/streak + tema + pilhas
     ├── AuthModal.tsx           # Entrar / criar conta + migração do demo
