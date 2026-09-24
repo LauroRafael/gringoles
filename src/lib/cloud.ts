@@ -252,6 +252,7 @@ export interface AppSettings {
   auto_add_enabled: boolean;
   auto_add_times: string[];
   demo_max: number;
+  tts_engine: string;
   tts_voice_en: string;
   tts_voice_pt: string;
   tts_rate: number;
@@ -263,8 +264,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auto_add_enabled: true,
   auto_add_times: ['08:00', '18:00'],
   demo_max: 100,
-  tts_voice_en: 'en-US-AriaNeural',
-  tts_voice_pt: 'pt-BR-FranciscaNeural',
+  tts_engine: 'proxy',
+  tts_voice_en: 'en_US-amy-medium',
+  tts_voice_pt: 'pt_BR-faber-medium',
   tts_rate: 1.0,
 };
 
@@ -289,6 +291,7 @@ export async function fetchAppSettings(): Promise<AppSettings | null> {
     auto_add_enabled: r.auto_add_enabled !== false,
     auto_add_times: normalizeTimes(r.auto_add_times),
     demo_max: Number(r.demo_max ?? 100),
+    tts_engine: r.tts_engine === 'piper' ? 'piper' : 'proxy',
     tts_voice_en: String(r.tts_voice_en ?? DEFAULT_SETTINGS.tts_voice_en),
     tts_voice_pt: String(r.tts_voice_pt ?? DEFAULT_SETTINGS.tts_voice_pt),
     tts_rate: Number(r.tts_rate ?? 1.0),
@@ -304,6 +307,7 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<vo
   if (patch.auto_add_enabled !== undefined) row.auto_add_enabled = patch.auto_add_enabled;
   if (patch.auto_add_times !== undefined) row.auto_add_times = normalizeTimes(patch.auto_add_times);
   if (patch.demo_max !== undefined) row.demo_max = patch.demo_max;
+  if (patch.tts_engine !== undefined) row.tts_engine = patch.tts_engine === 'piper' ? 'piper' : 'proxy';
   if (patch.tts_voice_en !== undefined) row.tts_voice_en = patch.tts_voice_en;
   if (patch.tts_voice_pt !== undefined) row.tts_voice_pt = patch.tts_voice_pt;
   if (patch.tts_rate !== undefined) row.tts_rate = patch.tts_rate;

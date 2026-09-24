@@ -167,6 +167,13 @@ interface Store {
   lastAutoAddDate: string;
   /** Teto de palavras do modo demo (editável no admin). */
   demoMax: number;
+  /** Motor de voz: 'proxy' (nuvem Google) ou 'piper' (neural offline). */
+  ttsEngine: string;
+  /** Vozes Piper (voiceId). */
+  ttsVoiceEN: string;
+  ttsVoicePT: string;
+  /** Velocidade 0.5–1.5 (playbackRate). */
+  ttsRate: number;
   /** Idioma da interface (imersão). */
   lang: Lang;
 
@@ -188,6 +195,10 @@ interface Store {
   setAutoNewPerDay: (n: number) => void;
   setAutoAddEnabled: (v: boolean) => void;
   setAutoAddTimes: (v: string[]) => void;
+  setTtsEngine: (v: string) => void;
+  setTtsVoiceEN: (v: string) => void;
+  setTtsVoicePT: (v: string) => void;
+  setTtsRate: (n: number) => void;
   setDemoMax: (n: number) => void;
   setLang: (l: Lang) => void;
   /** Injeta as palavras do dia (demo local ou banco na nuvem). Retorna qtd adicionada. */
@@ -257,6 +268,10 @@ export const useStore = create<Store>()(
       autoAddTimes: [...DEFAULT_AUTO_ADD_TIMES],
       lastAutoAddSlots: {},
       lastAutoAddDate: '',
+      ttsEngine: 'proxy',
+      ttsVoiceEN: 'en_US-amy-medium',
+      ttsVoicePT: 'pt_BR-faber-medium',
+      ttsRate: 1,
       demoMax: DEMO_MAX_DEFAULT,
       lang: 'pt',
 
@@ -444,6 +459,24 @@ export const useStore = create<Store>()(
         const times = normalizeTimesInput(v);
         set({ autoAddTimes: times });
         if (get().role === 'admin' && supabase) void updateAppSettings({ auto_add_times: times }).catch(() => {});
+      },
+      setTtsEngine: (v) => {
+        const engine = v === 'piper' ? 'piper' : 'proxy';
+        set({ ttsEngine: engine });
+        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_engine: engine }).catch(() => {});
+      },
+      setTtsVoiceEN: (ttsVoiceEN) => {
+        set({ ttsVoiceEN });
+        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_voice_en: ttsVoiceEN }).catch(() => {});
+      },
+      setTtsVoicePT: (ttsVoicePT) => {
+        set({ ttsVoicePT });
+        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_voice_pt: ttsVoicePT }).catch(() => {});
+      },
+      setTtsRate: (n) => {
+        const ttsRate = Math.min(1.5, Math.max(0.5, Number(n) || 1));
+        set({ ttsRate });
+        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_rate: ttsRate }).catch(() => {});
       },
       setDemoMax: (demoMax) => {
         const v = Math.max(1, demoMax);
@@ -708,6 +741,10 @@ export const useStore = create<Store>()(
               autoAddEnabled: gs.auto_add_enabled,
               autoAddTimes: normalizeTimesInput(gs.auto_add_times),
               demoMax: Math.max(1, gs.demo_max),
+              ttsEngine: gs.tts_engine === 'piper' ? 'piper' : 'proxy',
+              ttsVoiceEN: gs.tts_voice_en || 'en_US-amy-medium',
+              ttsVoicePT: gs.tts_voice_pt || 'pt_BR-faber-medium',
+              ttsRate: Math.min(1.5, Math.max(0.5, Number(gs.tts_rate) || 1)),
             });
           }
         } catch { /* offline — mantém cache local */ }
@@ -891,7 +928,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: STORE_KEY,
-      version: 2,
+      version: 3,
       migrate: (persisted: unknown) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         const ob = (p.outbox ?? {}) as Record<string, unknown>;
@@ -903,6 +940,10 @@ export const useStore = create<Store>()(
           lastAutoAddSlots: (p.lastAutoAddSlots ?? {}) as Record<string, string>,
           lastAutoAddDate: (p.lastAutoAddDate ?? '') as string,
           pendingPhotos: (p.pendingPhotos ?? {}) as Record<string, string>,
+          ttsEngine: p.ttsEngine === 'piper' ? 'piper' : 'proxy',
+          ttsVoiceEN: (p.ttsVoiceEN as string) || 'en_US-amy-medium',
+          ttsVoicePT: (p.ttsVoicePT as string) || 'pt_BR-faber-medium',
+          ttsRate: Math.min(1.5, Math.max(0.5, Number(p.ttsRate) || 1)),
           outbox: {
             cards: (ob.cards ?? []) as string[],
             deletes: (ob.deletes ?? []) as string[],
@@ -928,6 +969,10 @@ export const useStore = create<Store>()(
         lastAutoAddDate: s.lastAutoAddDate,
         demoMax: s.demoMax,
         lang: s.lang,
+        ttsEngine: s.ttsEngine,
+        ttsVoiceEN: s.ttsVoiceEN,
+        ttsVoicePT: s.ttsVoicePT,
+        ttsRate: s.ttsRate,
         outbox: s.outbox,
         pendingPhotos: s.pendingPhotos,
       }),

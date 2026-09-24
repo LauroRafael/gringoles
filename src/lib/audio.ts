@@ -1,12 +1,124 @@
-/** TTS em camadas: 1) mp3 em cache (Storage tts-cache) via Edge tts-proxy → 2) Web Speech API local.
- * MVP grátis, sem chave. Falhou a nuvem? Cai para speech.ts sem quebrar.
+/** TTS em camadas: 1) Piper neural offline (se motor ativo e voz baixada) →
+ * 2) mp3 em cache (Storage tts-cache) via Edge tts-proxy → 3) Web Speech API local.
+ * 100% grátis, sem chave. Falhou tudo? A voz local assume sem quebrar.
  * Textos longos são fatiados em ~180 chars (limite do proxy) e tocados em sequência.
  */
 import { supabase } from './supabase';
 import { speakEN, speakPT, speakExamplePair, stopSpeak } from './speech';
+import { useStore } from '../store/useStore';
+
+type PiperSession = { predict: (text: string) => Promise<Blob> };
+type PiperProgress = { url?: string; loaded?: number; total?: number };
+let piperMod: typeof import('@realtimex/piper-tts-web') | null = null;
+const piperSessions = new Map<string, PiperSession>();
+/** Voz cujo modelo está carregado no singleton TtsSession (a lib reaproveita a
+ *  instância sem recarregar o modelo — trocar de voz exige reset explícito). */
+let piperLoadedVoice: string | null = null;
+
+async function loadPiper() {
+  if (!piperMod) piperMod = await import('@realtimex/piper-tts-web');
+  return piperMod;
+}
+
+/** Devolve a sessão da voz pedida, recarregando o modelo ao trocar de voz. */
+async function piperSessionFor(voiceId: string): Promise<PiperSession> {
+  const mod = await loadPiper();
+  if (piperLoadedVoice !== voiceId) {
+    try {
+      (mod.TtsSession as unknown as { _instance?: unknown })._instance = undefined;
+    } catch { /* noop */ }
+    piperSessions.clear();
+    piperLoadedVoice = null;
+  }
+  let session = piperSessions.get(voiceId);
+  if (!session) {
+    session = new mod.TtsSession({ voiceId, fallbackStrategy: 'auto' }) as PiperSession;
+    piperSessions.set(voiceId, session);
+    piperLoadedVoice = voiceId;
+  }
+  return session;
+}
+
+/** Vozes Piper já baixadas neste aparelho (Origin private file system). */
+export async function piperStoredVoices(): Promise<string[]> {
+  try {
+    const mod = await loadPiper();
+    const list = (await mod.stored()) as unknown;
+    return Array.isArray(list) ? (list as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Baixa a voz Piper (~60MB, uma vez só — depois fica em cache offline). */
+export async function downloadPiperVoice(voiceId: string, onProgress?: (pct: number) => void): Promise<boolean> {
+  try {
+    const mod = await loadPiper();
+    await mod.download(voiceId, (p: unknown) => {
+      const prog = p as PiperProgress;
+      if (onProgress && prog.total) onProgress(Math.round(((prog.loaded ?? 0) * 100) / prog.total));
+    });
+    piperSessions.delete(voiceId);
+    if (piperLoadedVoice === voiceId) piperLoadedVoice = null;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Apaga a voz baixada para liberar espaço (~60MB). */
+export async function removePiperVoice(voiceId: string): Promise<void> {
+  try {
+    const mod = await loadPiper();
+    await mod.remove(voiceId);
+  } catch { /* noop */ }
+  piperSessions.delete(voiceId);
+  if (piperLoadedVoice === voiceId) piperLoadedVoice = null;
+}
+
+/** Sintetiza via Piper local. true se tocou tudo; false = modelo ausente/falha. */
+async function piperSynth(text: string, voiceId: string, rate: number): Promise<boolean> {
+  const token = seqToken;
+  try {
+    const stored = await piperStoredVoices();
+    if (!stored.includes(voiceId)) return false;
+    const session = await piperSessionFor(voiceId);
+    for (const part of chunk(text)) {
+      if (token !== seqToken) return false;
+      const wav = await session.predict(part);
+      if (token !== seqToken) return false;
+      const url = URL.createObjectURL(wav);
+      try {
+        const ok = await playUrl(url, rate, token);
+        if (!ok) return false;
+        markEngine(`piper:${voiceId}`);
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+    }
+    return true;
+  } catch {
+    piperSessions.delete(voiceId);
+    if (piperLoadedVoice === voiceId) piperLoadedVoice = null;
+    return false;
+  }
+}
 
 let currentAudio: HTMLAudioElement | null = null;
 let seqToken = 0;
+/** De onde veio o último áudio tocado (diagnóstico visível no Admin). */
+let lastEngineUsed = '—';
+
+export function lastEngine(): string {
+  return lastEngineUsed;
+}
+
+function markEngine(e: string): void {
+  lastEngineUsed = e;
+  try {
+    console.info(`[tts] engine=${e}`);
+  } catch { /* noop */ }
+}
 
 export function stopAudio(): void {
   seqToken += 1;
@@ -116,16 +228,26 @@ async function cacheUpload(key: string, blob: Blob): Promise<string | null> {
   }
 }
 
-/** Toca um texto: cache → proxy → fallback local. rate≈1 normal, 0.6 devagar. Retorna true se tocou tudo. */
+/** Toca um texto: Piper local → cache → proxy → fallback local. Retorna true se tocou tudo. */
 async function playText(text: string, lang: 'en' | 'pt', rate = 1): Promise<boolean> {
   const token = seqToken;
+  const st = useStore.getState();
+  // 1) Piper neural offline (só se o modelo já está baixado — sem download surpresa)
+  if (st.ttsEngine === 'piper') {
+    const voice = lang === 'en' ? st.ttsVoiceEN : st.ttsVoicePT;
+    if (token === seqToken && await piperSynth(text, voice, rate)) return true;
+    if (token !== seqToken) return false;
+  }
   const parts = chunk(text);
   for (const part of parts) {
     if (token !== seqToken) return false;
     const key = hashKey(part, lang);
     let played = false;
     const hit = await cacheUrl(key);
-    if (hit && token === seqToken) played = await playUrl(hit, rate, token);
+    if (hit && token === seqToken) {
+      played = await playUrl(hit, rate, token);
+      if (played) markEngine('proxy:cache');
+    }
     if (!played && token === seqToken) {
       const blob = await fetchProxyMp3(part, lang);
       if (blob && token === seqToken) {
@@ -133,6 +255,7 @@ async function playText(text: string, lang: 'en' | 'pt', rate = 1): Promise<bool
         const stored = await cacheUpload(key, blob);
         const objUrl = URL.createObjectURL(blob);
         played = await playUrl(stored ?? objUrl, rate, token);
+        if (played) markEngine(stored ? 'proxy:cache-new' : 'proxy:direto');
         if (!stored) window.setTimeout(() => URL.revokeObjectURL(objUrl), 60000);
       }
     }
@@ -142,6 +265,7 @@ async function playText(text: string, lang: 'en' | 'pt', rate = 1): Promise<bool
 }
 
 function fallback(text: string, lang: 'en' | 'pt', slow: boolean): void {
+  markEngine('local:sistema');
   if (lang === 'en') speakEN(text, slow);
   else speakPT(text);
 }
@@ -150,8 +274,9 @@ function fallback(text: string, lang: 'en' | 'pt', slow: boolean): void {
 export function playEN(text: string, slow = false): void {
   stopAudio();
   const token = seqToken;
+  const baseRate = useStore.getState().ttsRate || 1;
   void (async () => {
-    const ok = await playText(text, 'en', slow ? 0.6 : 1);
+    const ok = await playText(text, 'en', slow ? 0.6 : baseRate);
     if (!ok && token === seqToken) fallback(text, 'en', slow);
   })();
 }
@@ -160,8 +285,9 @@ export function playEN(text: string, slow = false): void {
 export function playPT(text: string): void {
   stopAudio();
   const token = seqToken;
+  const baseRate = useStore.getState().ttsRate || 1;
   void (async () => {
-    const ok = await playText(text, 'pt', 1);
+    const ok = await playText(text, 'pt', baseRate);
     if (!ok && token === seqToken) fallback(text, 'pt', false);
   })();
 }
@@ -174,10 +300,14 @@ export function playExamplePair(exampleEN: string, examplePT: string): void {
     const okEN = await playText(exampleEN, 'en', 1);
     if (token !== seqToken) return;
     if (!okEN) {
+      markEngine('local:sistema');
       speakExamplePair(exampleEN, examplePT);
       return;
     }
     const okPT = await playText(examplePT, 'pt', 1);
-    if (!okPT && token === seqToken) speakExamplePair(exampleEN, examplePT);
+    if (!okPT && token === seqToken) {
+      markEngine('local:sistema');
+      speakExamplePair(exampleEN, examplePT);
+    }
   })();
 }
