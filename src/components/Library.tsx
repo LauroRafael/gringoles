@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Search, Trash2, Upload, Download, Volume2, RotateCcw, X, Lock, Crown } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { speakEN } from '../lib/speech';
+import { playEN } from '../lib/audio';
 import { findDuplicate } from '../lib/dedupe';
 import { compressImage } from '../lib/image';
 import { completeWord } from '../lib/cloud';
@@ -40,7 +40,7 @@ const emptyForm = {
 const capFirst = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 export default function Library() {
-  const { cards, user, addCard, updateCard, removeCard, movePile, importCards, setShowInvite, lang } = useStore();
+  const { cards, user, addCard, updateCard, removeCard, movePile, importCards, setShowInvite, lang, queuePhoto, setCloudNotice } = useStore();
   const t = STRINGS[lang];
   /** Demo = vitrine bloqueada: tudo visível, edição só na full. */
   const locked = !user;
@@ -138,9 +138,18 @@ export default function Library() {
     try {
       const dataUrl = await compressImage(file);
       if (user) {
-        // Modo full: sobe ao Storage e guarda a URL pública.
-        const url = await uploadPhoto(user.id, dataUrl);
-        setEditing({ ...editing, photo: '', photoUrl: url });
+        // Modo full: sobe ao Storage e guarda a URL pública. Falhou → guarda local + fila retry.
+        try {
+          const url = await uploadPhoto(user.id, dataUrl);
+          setEditing({ ...editing, photo: '', photoUrl: url });
+        } catch {
+          const cardId = editing.id ?? `pending-${Date.now()}`;
+          queuePhoto(cardId, dataUrl);
+          setEditing({ ...editing, photo: dataUrl, photoUrl: '' });
+          try {
+            setCloudNotice('⚠️ Foto salva aqui; envio para a nuvem pendente — tento sozinho.');
+          } catch { /* noop */ }
+        }
       } else {
         setEditing({ ...editing, photo: dataUrl, photoUrl: '' });
       }
@@ -296,7 +305,7 @@ export default function Library() {
                   <p className="font-black text-lg leading-tight">{c.en}</p>
                   <p className="text-sm text-slate-500 dark:text-slate-300">{c.pt} · "{c.phoneticBR}"</p>
                 </div>
-                <button onClick={() => speakEN(c.en)} className="p-2 rounded-xl bg-azure dark:bg-carolina/15 text-sapphire dark:text-carolina active:scale-90" title={t.lib_listen}>
+                <button onClick={() => playEN(c.en)} className="p-2 rounded-xl bg-azure dark:bg-carolina/15 text-sapphire dark:text-carolina active:scale-90" title={t.lib_listen}>
                   <Volume2 size={16} />
                 </button>
               </div>

@@ -89,6 +89,7 @@ export interface CloudWorkspace {
   role: 'user' | 'admin';
   displayName: string;
   mustChangePassword: boolean;
+  isBlocked: boolean;
 }
 
 export async function loadWorkspace(userId: string): Promise<CloudWorkspace> {
@@ -96,14 +97,14 @@ export async function loadWorkspace(userId: string): Promise<CloudWorkspace> {
   const [cardsRes, daysRes, profRes] = await Promise.all([
     db.from('cards').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(2000),
     db.from('study_days').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(60),
-    db.from('profiles').select('role,display_name,xp,day_streak,best_streak,last_study_date,must_change_password').eq('id', userId).single(),
+    db.from('profiles').select('role,display_name,xp,day_streak,best_streak,last_study_date,must_change_password,is_blocked').eq('id', userId).single(),
   ]);
   if (cardsRes.error) throw cardsRes.error;
   if (daysRes.error) throw daysRes.error;
   if (profRes.error) throw profRes.error;
   const p = profRes.data as {
     role: string; display_name: string | null; xp: number; day_streak: number;
-    best_streak: number; last_study_date: string; must_change_password: boolean;
+    best_streak: number; last_study_date: string; must_change_password: boolean; is_blocked: boolean;
   };
   return {
     cards: (cardsRes.data as CardRow[]).map((r) => rowToCard(r)),
@@ -117,6 +118,7 @@ export async function loadWorkspace(userId: string): Promise<CloudWorkspace> {
     role: p.role === 'admin' ? 'admin' : 'user',
     displayName: p.display_name ?? '',
     mustChangePassword: p.must_change_password ?? false,
+    isBlocked: p.is_blocked === true,
   };
 }
 
@@ -242,6 +244,71 @@ export function bankRowToCard(row: BankRow, index: number, now = Date.now()): Ca
     createdAt: now + index,
     bankId: row.bank_id,
   };
+}
+
+export interface AppSettings {
+  new_per_day: number;
+  auto_new_per_day: number;
+  auto_add_enabled: boolean;
+  auto_add_times: string[];
+  demo_max: number;
+  tts_voice_en: string;
+  tts_voice_pt: string;
+  tts_rate: number;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  new_per_day: 20,
+  auto_new_per_day: 5,
+  auto_add_enabled: true,
+  auto_add_times: ['08:00', '18:00'],
+  demo_max: 100,
+  tts_voice_en: 'en-US-AriaNeural',
+  tts_voice_pt: 'pt-BR-FranciscaNeural',
+  tts_rate: 1.0,
+};
+
+function normalizeTimes(v: unknown): string[] {
+  if (!Array.isArray(v)) return [...DEFAULT_SETTINGS.auto_add_times];
+  const clean = (v as unknown[])
+    .map((x) => String(x).trim())
+    .filter((x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x));
+  const uniq = [...new Set(clean)].sort();
+  return uniq.length > 0 ? uniq.slice(0, 4) : [...DEFAULT_SETTINGS.auto_add_times];
+}
+
+/** Lê as configurações globais (linha id=1). Leitura pública; nunca quebra offline. */
+export async function fetchAppSettings(): Promise<AppSettings | null> {
+  const db = mustDb();
+  const { data, error } = await db.from('app_settings').select('*').eq('id', 1).single();
+  if (error) throw error;
+  const r = data as Record<string, unknown>;
+  return {
+    new_per_day: Number(r.new_per_day ?? 20),
+    auto_new_per_day: Number(r.auto_new_per_day ?? 5),
+    auto_add_enabled: r.auto_add_enabled !== false,
+    auto_add_times: normalizeTimes(r.auto_add_times),
+    demo_max: Number(r.demo_max ?? 100),
+    tts_voice_en: String(r.tts_voice_en ?? DEFAULT_SETTINGS.tts_voice_en),
+    tts_voice_pt: String(r.tts_voice_pt ?? DEFAULT_SETTINGS.tts_voice_pt),
+    tts_rate: Number(r.tts_rate ?? 1.0),
+  };
+}
+
+/** Salva as configurações globais (só admin — RLS barra o resto). */
+export async function updateAppSettings(patch: Partial<AppSettings>): Promise<void> {
+  const db = mustDb();
+  const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.new_per_day !== undefined) row.new_per_day = patch.new_per_day;
+  if (patch.auto_new_per_day !== undefined) row.auto_new_per_day = patch.auto_new_per_day;
+  if (patch.auto_add_enabled !== undefined) row.auto_add_enabled = patch.auto_add_enabled;
+  if (patch.auto_add_times !== undefined) row.auto_add_times = normalizeTimes(patch.auto_add_times);
+  if (patch.demo_max !== undefined) row.demo_max = patch.demo_max;
+  if (patch.tts_voice_en !== undefined) row.tts_voice_en = patch.tts_voice_en;
+  if (patch.tts_voice_pt !== undefined) row.tts_voice_pt = patch.tts_voice_pt;
+  if (patch.tts_rate !== undefined) row.tts_rate = patch.tts_rate;
+  const { error } = await db.from('app_settings').update(row).eq('id', 1);
+  if (error) throw error;
 }
 
 /** Traz o lote diário do word_bank (servidor), excluindo EN/bank_id já possuídos. */

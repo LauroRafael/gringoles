@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { KeyRound, ShieldAlert } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { STRINGS } from '../lib/i18n';
+import { passwordIssue } from '../lib/password';
 
 /** Bloqueia o app até o admin trocar a senha inicial. */
 export default function ChangePasswordGate() {
@@ -14,8 +15,9 @@ export default function ChangePasswordGate() {
 
   const submit = async () => {
     setLocalErr(null);
-    if (pw1.length < 6) {
-      setLocalErr(t.pwd_short);
+    const issue = passwordIssue(pw1);
+    if (issue) {
+      setLocalErr(issue === 'short' ? t.pwd_short : t.pwd_weak);
       return;
     }
     if (pw1 !== pw2) {

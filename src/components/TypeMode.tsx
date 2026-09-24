@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Volume2, Keyboard, Eye } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { speakEN } from '../lib/speech';
+import { playEN } from '../lib/audio';
 import { STRINGS } from '../lib/i18n';
 import type { Card } from '../types';
 
@@ -56,8 +56,8 @@ export default function TypeMode() {
         <p className="font-black text-xl mt-2">{current.pt}</p>
         <p className="text-sm text-slate-500">{showHint ? `"${current.phoneticBR}" · ${current.ipa}` : t.type_hint_hidden}</p>
         <div className="flex gap-2 justify-center mt-3">
-          <button onClick={() => speakEN(current.en)} className="inline-flex items-center gap-1 px-4 py-2.5 rounded-2xl bg-sapphire text-white text-sm font-bold"><Volume2 size={16} /> {t.deck_listen} 🔊</button>
-          <button onClick={() => speakEN(current.en, true)} className="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-white/10 text-sm font-bold">{t.type_slow}</button>
+          <button onClick={() => playEN(current.en)} className="inline-flex items-center gap-1 px-4 py-2.5 rounded-2xl bg-sapphire text-white text-sm font-bold"><Volume2 size={16} /> {t.deck_listen} 🔊</button>
+          <button onClick={() => playEN(current.en, true)} className="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-white/10 text-sm font-bold">{t.type_slow}</button>
           <button onClick={() => setShowHint((s) => !s)} className="px-3 py-2.5 rounded-2xl border border-slate-200 dark:border-white/10 text-sm font-bold"><Eye size={16} /></button>
         </div>
         <input

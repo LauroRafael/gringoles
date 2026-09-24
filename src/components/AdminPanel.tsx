@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShieldCheck, Trash2, RotateCcw, Users, BookOpen, CalendarDays, Plus, Pencil, Power } from 'lucide-react';
+import { ShieldCheck, Trash2, RotateCcw, Users, BookOpen, CalendarDays, Plus, Pencil, Power, Ban, UserX } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { STRINGS } from '../lib/i18n';
 import { useStore } from '../store/useStore';
@@ -10,6 +10,7 @@ interface Profile {
   role: string;
   xp: number;
   created_at: string;
+  is_blocked: boolean;
 }
 
 interface BankRow {
@@ -18,8 +19,9 @@ interface BankRow {
 }
 
 export default function AdminPanel() {
-  const { role, newPerDay, setNewPerDay, autoNewPerDay, setAutoNewPerDay,
-    autoAddEnabled, setAutoAddEnabled, demoMax, setDemoMax, adminCreateUser, lang } = useStore();
+  const { role, user, newPerDay, setNewPerDay, autoNewPerDay, setAutoNewPerDay,
+    autoAddEnabled, setAutoAddEnabled, autoAddTimes, setAutoAddTimes,
+    demoMax, setDemoMax, adminCreateUser, manageUser, lang } = useStore();
   const t = STRINGS[lang];
   const [nuName, setNuName] = useState('');
   const [nuEmail, setNuEmail] = useState('');
@@ -44,7 +46,7 @@ export default function AdminPanel() {
   const reload = async () => {
     if (!supabase) return;
     const [u, c, d, b] = await Promise.all([
-      db().from('profiles').select('id,display_name,role,xp,created_at').order('created_at', { ascending: false }).limit(200),
+      db().from('profiles').select('id,display_name,role,xp,created_at,is_blocked').order('created_at', { ascending: false }).limit(200),
       db().from('cards').select('id', { count: 'exact', head: true }),
       db().from('study_days').select('studied', { count: 'exact', head: true }),
       db().from('word_bank').select('*').order('bank_id').limit(1000),
@@ -91,6 +93,20 @@ export default function AdminPanel() {
       const { error } = await db().from('profiles').update({ role: next }).eq('id', id);
       if (error) throw error;
       flash(`✅ ${name} ${t.adm_role_done} ${next}.`);
+    });
+
+  const toggleBlock = (id: string, name: string, blocked: boolean) =>
+    run(`block-${id}`, async () => {
+      if (!confirm(blocked ? `${t.adm_unblock_confirm} ${name}?` : `${t.adm_block_confirm} ${name}?`)) return;
+      const res = await manageUser(blocked ? 'unblock' : 'block', id);
+      flash(res.msg);
+    });
+
+  const deleteUser = (id: string, name: string) =>
+    run(`del-${id}`, async () => {
+      if (!confirm(`${t.adm_del_confirm} ${name}? ${t.adm_del_irreversible}`)) return;
+      const res = await manageUser('delete', id);
+      flash(res.msg);
     });
 
   const saveBank = () =>
@@ -159,6 +175,21 @@ export default function AdminPanel() {
             {t.adm_cfg_auto}
             <input type="number" min={0} max={30} value={autoNewPerDay} onChange={(e) => setAutoNewPerDay(Math.max(0, Number(e.target.value) || 0))} className="w-16 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
           </label>
+          <label className="font-bold inline-flex items-center gap-2">⏰ {t.adm_cfg_times}
+            {[0, 1].map((i) => (
+              <input
+                key={i}
+                type="time"
+                value={(autoAddTimes ?? [])[i] ?? ''}
+                onChange={(e) => {
+                  const next = [...(autoAddTimes ?? [])];
+                  next[i] = e.target.value;
+                  setAutoAddTimes(next.filter(Boolean));
+                }}
+                className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent"
+              />
+            ))}
+          </label>
           <label className="font-bold">{t.adm_cfg_cap}
             <input type="number" min={1} max={10000} value={demoMax} onChange={(e) => setDemoMax(Number(e.target.value) || 100)} className="ml-2 w-20 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
           </label>
@@ -193,9 +224,10 @@ export default function AdminPanel() {
         <p className="font-black text-sm mb-3">{t.adm_users_title}</p>
         <div className="grid gap-2">
           {users.map((u) => (
-            <div key={u.id} className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl bg-slate-50 dark:bg-white/5 text-sm">
+            <div key={u.id} className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl text-sm ${u.is_blocked ? 'bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20' : 'bg-slate-50 dark:bg-white/5'}`}>
               <span className="font-black">{u.display_name || '(sem nome)'}</span>
               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-sapphire text-white' : 'bg-slate-200 dark:bg-white/10'}`}>{u.role}</span>
+              {u.is_blocked && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-500 text-white">⛔ {t.adm_blocked}</span>}
               <span className="text-xs text-slate-500">⚡{u.xp} XP</span>
               <span className="flex-1" />
               <button disabled={busy !== null} onClick={() => resetUser(u.id, u.display_name || u.id.slice(0, 8))} title="Zerar progresso" className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 disabled:opacity-50">
@@ -204,6 +236,16 @@ export default function AdminPanel() {
               <button disabled={busy !== null} onClick={() => setRole(u.id, u.display_name || u.id.slice(0, 8), u.role === 'admin' ? 'user' : 'admin')} title="Alternar papel" className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 disabled:opacity-50">
                 <ShieldCheck size={12} /> {u.role === 'admin' ? t.adm_demote : t.adm_promote}
               </button>
+              {u.id !== user?.id && (
+                <>
+                  <button disabled={busy !== null} onClick={() => toggleBlock(u.id, u.display_name || u.id.slice(0, 8), u.is_blocked)} title={u.is_blocked ? t.adm_unblock : t.adm_block} className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl border disabled:opacity-50 ${u.is_blocked ? 'border-emerald-300 text-emerald-600 dark:text-emerald-300' : 'border-rose-300 text-rose-600 dark:text-rose-300'}`}>
+                    <Ban size={12} /> {busy === `block-${u.id}` ? '...' : u.is_blocked ? t.adm_unblock : t.adm_block}
+                  </button>
+                  <button disabled={busy !== null} onClick={() => deleteUser(u.id, u.display_name || u.id.slice(0, 8))} title={t.adm_delete_user} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-rose-500 text-white disabled:opacity-50">
+                    <UserX size={12} /> {busy === `del-${u.id}` ? '...' : t.adm_delete_user}
+                  </button>
+                </>
+              )}
             </div>
           ))}
           {users.length === 0 && <p className="text-sm text-slate-500">{t.adm_nousers}</p>}

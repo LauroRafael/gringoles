@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BadgeCheck, Eye, RotateCcw, Volume2, Turtle, X, Check } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { speakEN, speakPT, speakExamplePair, stopSpeak } from '../lib/speech';
+import { playEN, playPT, playExamplePair, stopAudio } from '../lib/audio';
 import { STRINGS } from '../lib/i18n';
 import { dueLabel } from '../lib/srs';
 import type { Card } from '../types';
@@ -39,10 +39,29 @@ export default function StudyDeck() {
   const current: Card | undefined = queue[0];
 
   const respondingRef = useRef(false);
-  const respond = (known: boolean) => {
+  const isMaxBox = (current?.box ?? 0) >= 5;
+  const demote = () => {
     if (!current || leaving || respondingRef.current) return;
     respondingRef.current = true;
-    stopSpeak();
+    stopAudio();
+    movePile(current.id, 'learning');
+    window.setTimeout(() => {
+      setFlipped(false);
+      respondingRef.current = false;
+      setSessionCount((n) => n + 1);
+    }, 220);
+  };
+  const respond = (known: boolean) => {
+    if (!current || leaving || respondingRef.current) return;
+    // Última caixa: só Rebaixar faz sentido — Dominado seria no-op (só reagenda +30d).
+    // Swipe/tecla também caem aqui: direita ignora, esquerda rebaixa (sem XP fantasma).
+    if ((current.box ?? 0) >= 5) {
+      if (known) return;
+      demote();
+      return;
+    }
+    respondingRef.current = true;
+    stopAudio();
     setLeaving(known ? 'right' : 'left');
     window.setTimeout(() => {
       answer(current.id, known);
@@ -159,10 +178,10 @@ export default function StudyDeck() {
                     <p className="text-lg text-slate-500 dark:text-slate-300">🗣️ "{current.phoneticBR}"</p>
                     <p className="text-sm font-mono text-slate-400">{current.ipa}</p>
                     <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => speakEN(current.en)} title={t.deck_listen_title} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-sapphire text-white text-sm font-bold hover:bg-celadon active:scale-95">
+                      <button onClick={() => playEN(current.en)} title={t.deck_listen_title} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-sapphire text-white text-sm font-bold hover:bg-celadon active:scale-95">
                         <Volume2 size={16} /> {t.deck_listen}
                       </button>
-                      <button onClick={() => speakEN(current.en, true)} title={t.deck_slow_title} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-bold active:scale-95">
+                      <button onClick={() => playEN(current.en, true)} title={t.deck_slow_title} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-bold active:scale-95">
                         <Turtle size={16} /> {t.deck_slow}
                       </button>
                     </div>
@@ -179,28 +198,28 @@ export default function StudyDeck() {
                   </div>
                   <div className="mt-2 flex flex-wrap justify-center gap-2" onClick={(e) => e.stopPropagation()}>
                     <button
-                      onClick={() => speakExamplePair(current.exampleEN, current.examplePT)}
+                      onClick={() => playExamplePair(current.exampleEN, current.examplePT)}
                       title={t.deck_ex_both_title}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white text-slate-900 text-sm font-black hover:bg-slate-100 active:scale-95"
                     >
                       <Volume2 size={16} /> {t.deck_ex_both}
                     </button>
                     <button
-                      onClick={() => speakEN(current.exampleEN)}
+                      onClick={() => playEN(current.exampleEN)}
                       title={t.deck_ex_en}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white/15 text-sm font-bold active:scale-95"
                     >
                       🇺🇸 EN
                     </button>
                     <button
-                      onClick={() => speakPT(current.examplePT)}
+                      onClick={() => playPT(current.examplePT)}
                       title={t.deck_ex_pt}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white/15 text-sm font-bold active:scale-95"
                     >
                       🇧🇷 PT
                     </button>
                     <button
-                      onClick={() => stopSpeak()}
+                      onClick={() => stopAudio()}
                       title={t.deck_stop}
                       className="px-3 py-2 rounded-xl bg-white/10 text-sm font-bold active:scale-95"
                     >
@@ -222,7 +241,19 @@ export default function StudyDeck() {
         )}
       </div>
 
-      {/* Botões de resposta */}
+      {/* Botões de resposta — última caixa (5/5): só Rebaixar */}
+      {isMaxBox ? (
+        <div className="mt-3 sm:mt-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center justify-between gap-2">
+          <p className="text-xs text-amber-700 dark:text-amber-300 font-semibold">{t.deck_rebox_max}</p>
+          <button
+            onClick={demote}
+            className="inline-flex items-center gap-1 text-xs font-black px-4 py-2.5 rounded-xl bg-amber-500 text-white hover:bg-amber-400 active:scale-95 whitespace-nowrap"
+          >
+            <RotateCcw size={14} /> {t.deck_demote}
+          </button>
+        </div>
+      ) : (
+      <>
       <div className="flex items-center justify-center gap-3 sm:gap-4 mt-3 sm:mt-4">
         <button
           onClick={() => respond(false)}
@@ -251,16 +282,18 @@ export default function StudyDeck() {
         <span className="inline-flex items-center gap-1 text-emerald-500 font-bold"><BadgeCheck size={12} /> {t.pile_known} · {t.deck_sleeps}</span>
       </div>
 
-      {/* Rebaixar mesmo se souber (só desktop — no mobile o ✗ já rebaixa) */}
-      <div className="mt-2 sm:mt-4 p-2 sm:p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 hidden sm:flex items-center justify-between gap-2">
+      {/* Rebaixar mesmo se souber */}
+      <div className="mt-2 sm:mt-4 p-2 sm:p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center justify-between gap-2">
         <p className="text-xs text-amber-700 dark:text-amber-300 font-semibold">{t.deck_rebox} <b>{t.pile_learning}</b>:</p>
         <button
           onClick={() => movePile(current.id, 'learning')}
           className="inline-flex items-center gap-1 text-xs font-black px-3 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-400 active:scale-95 whitespace-nowrap"
         >
-          <RotateCcw size={14} /> Rever
+          <RotateCcw size={14} /> {t.deck_rever}
         </button>
       </div>
+      </>
+      )}
     </div>
   );
 }

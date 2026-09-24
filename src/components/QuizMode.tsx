@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Volume2, Trophy, Shuffle } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { speakEN } from '../lib/speech';
+import { playEN } from '../lib/audio';
 import { STRINGS } from '../lib/i18n';
 import type { Card } from '../types';
 
@@ -157,7 +157,7 @@ export default function QuizMode() {
             <span className="text-6xl">{card.emoji}</span>
             <h2 className="text-3xl font-black mt-2">{card.en}</h2>
             <p className="text-slate-500">"{card.phoneticBR}" · {card.ipa}</p>
-            <button onClick={() => speakEN(card.en)} className="mt-2 inline-flex items-center gap-1 text-sm font-bold px-3 py-2 rounded-xl bg-sapphire text-white"><Volume2 size={15} /> {t.deck_listen}</button>
+            <button onClick={() => playEN(card.en)} className="mt-2 inline-flex items-center gap-1 text-sm font-bold px-3 py-2 rounded-xl bg-sapphire text-white"><Volume2 size={15} /> {t.deck_listen}</button>
             <p className="text-sm font-bold mt-4 mb-2 text-left">{t.quiz_what}</p>
             <div className="grid gap-2">
               {options.map((opt) => {

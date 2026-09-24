@@ -80,7 +80,7 @@ export default function PwaStatus() {
       if (user) {
         setSyncMsg(t.pwa_back);
         try {
-          const n = await flushOutbox();
+          const n = await flushOutbox(true);
           setSyncMsg(n > 0 ? t.pwa_synced : null);
         } catch {
           setSyncMsg(null);
@@ -93,11 +93,18 @@ export default function PwaStatus() {
       setOnline(false);
       setSyncMsg(null);
     };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine && user) {
+        void flushOutbox().catch(() => {});
+      }
+    };
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.removeEventListener('online', on);
       window.removeEventListener('offline', off);
+      document.removeEventListener('visibilitychange', onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);

@@ -20,9 +20,10 @@ import type { Tab } from './types';
 
 export default function App() {
   const { tab, setTab, theme, ensureDailyWords, initAuth, authLoading, role, user, lang, setShowTutorial,
-    cloudNotice, clearCloudNotice, mustChangePassword } = useStore();
+    cloudNotice, clearCloudNotice, mustChangePassword, outbox, pendingPhotos, syncing, flushOutbox } = useStore();
   const [dailyAdded, setDailyAdded] = useState<number | null>(null);
   const t = STRINGS[lang];
+  const pendingCount = (outbox.cards ?? []).length + (outbox.deletes ?? []).length + (outbox.meta ? 1 : 0) + Object.keys(pendingPhotos ?? {}).length;
 
   const BASE_TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'study', label: t.nav_study, icon: <GraduationCap size={20} /> },
@@ -87,11 +88,22 @@ export default function App() {
             </div>
           )}
 
-          {cloudNotice && (
+          {(cloudNotice || pendingCount > 0) && (
             <div className="max-w-5xl mx-auto px-4 pt-4">
               <div className="px-4 py-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-300 text-sm font-bold animate-pop-in flex items-center justify-between gap-2">
-                <span>{cloudNotice}</span>
-                <button onClick={clearCloudNotice} className="text-xs underline whitespace-nowrap">{t.app_dismiss}</button>
+                <span>{cloudNotice ?? `⏳ ${pendingCount} ${t.app_pending} — tento sozinho ao reconectar.`}</span>
+                <span className="flex items-center gap-2 shrink-0">
+                  {pendingCount > 0 && (
+                    <button
+                      onClick={() => void flushOutbox(true)}
+                      disabled={syncing}
+                      className="text-xs font-black px-2.5 py-1 rounded-lg bg-rose-500 text-white disabled:opacity-50 active:scale-95"
+                    >
+                      {syncing ? t.app_syncing : t.app_retry_sync}
+                    </button>
+                  )}
+                  <button onClick={clearCloudNotice} className="text-xs underline whitespace-nowrap">{t.app_dismiss}</button>
+                </span>
               </div>
             </div>
           )}
