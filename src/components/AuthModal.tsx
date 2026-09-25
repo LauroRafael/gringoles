@@ -29,7 +29,7 @@ export default function AuthModal() {
     }
   };
 
-  const waText = encodeURIComponent('Olá! Quero acesso full ao Gringolês 🃏');
+  const waText = encodeURIComponent(t.wa_invite);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onClick={() => setShowAuth(false)}>

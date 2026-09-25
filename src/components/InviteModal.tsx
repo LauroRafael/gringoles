@@ -8,7 +8,7 @@ export default function InviteModal() {
   const { showInvite, setShowInvite, inviteMsg, demoMax, lang } = useStore();
   const t = STRINGS[lang];
   if (!showInvite) return null;
-  const waText = encodeURIComponent('Olá! Quero acesso full ao Gringolês 🃏');
+  const waText = encodeURIComponent(t.wa_invite);
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onClick={() => setShowInvite(false)}>
       <div className="w-full sm:max-w-sm bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 animate-pop-in text-center" onClick={(e) => e.stopPropagation()}>

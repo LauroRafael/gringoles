@@ -25,7 +25,18 @@ export interface CardRow {
   last_seen_at: string | null;
 }
 
+function normalizePileRow(p: unknown): Pile {
+  const s = String(p ?? 'new');
+  if (s === 'learning') return 'practice';
+  if (s === 'known') return 'mastered';
+  if (s === 'due') return 'study';
+  if (s === 'new' || s === 'check' || s === 'study' || s === 'practice' || s === 'mastered') return s;
+  return 'new';
+}
+
 export function rowToCard(r: CardRow, photoFallback?: string): Card {
+  const pile = normalizePileRow(r.pile);
+  const box = Math.max(0, Math.min(4, Number(r.box ?? 0)));
   return {
     id: r.id,
     en: r.en,
@@ -39,8 +50,8 @@ export function rowToCard(r: CardRow, photoFallback?: string): Card {
     photoUrl: r.photo_url ?? undefined,
     gradient: r.gradient,
     category: r.category,
-    pile: r.pile,
-    box: r.box,
+    pile,
+    box,
     nextReviewAt: new Date(r.next_review_at).getTime(),
     correctStreak: r.correct_streak,
     seenCount: r.seen_count,
@@ -252,10 +263,6 @@ export interface AppSettings {
   auto_add_enabled: boolean;
   auto_add_times: string[];
   demo_max: number;
-  tts_engine: string;
-  tts_voice_en: string;
-  tts_voice_pt: string;
-  tts_rate: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -264,10 +271,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auto_add_enabled: true,
   auto_add_times: ['08:00', '18:00'],
   demo_max: 100,
-  tts_engine: 'proxy',
-  tts_voice_en: 'en_US-amy-medium',
-  tts_voice_pt: 'pt_BR-faber-medium',
-  tts_rate: 1.0,
 };
 
 function normalizeTimes(v: unknown): string[] {
@@ -291,10 +294,6 @@ export async function fetchAppSettings(): Promise<AppSettings | null> {
     auto_add_enabled: r.auto_add_enabled !== false,
     auto_add_times: normalizeTimes(r.auto_add_times),
     demo_max: Number(r.demo_max ?? 100),
-    tts_engine: r.tts_engine === 'piper' ? 'piper' : 'proxy',
-    tts_voice_en: String(r.tts_voice_en ?? DEFAULT_SETTINGS.tts_voice_en),
-    tts_voice_pt: String(r.tts_voice_pt ?? DEFAULT_SETTINGS.tts_voice_pt),
-    tts_rate: Number(r.tts_rate ?? 1.0),
   };
 }
 
@@ -307,10 +306,6 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<vo
   if (patch.auto_add_enabled !== undefined) row.auto_add_enabled = patch.auto_add_enabled;
   if (patch.auto_add_times !== undefined) row.auto_add_times = normalizeTimes(patch.auto_add_times);
   if (patch.demo_max !== undefined) row.demo_max = patch.demo_max;
-  if (patch.tts_engine !== undefined) row.tts_engine = patch.tts_engine === 'piper' ? 'piper' : 'proxy';
-  if (patch.tts_voice_en !== undefined) row.tts_voice_en = patch.tts_voice_en;
-  if (patch.tts_voice_pt !== undefined) row.tts_voice_pt = patch.tts_voice_pt;
-  if (patch.tts_rate !== undefined) row.tts_rate = patch.tts_rate;
   const { error } = await db.from('app_settings').update(row).eq('id', 1);
   if (error) throw error;
 }

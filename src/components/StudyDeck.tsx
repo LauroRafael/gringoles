@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BadgeCheck, Eye, RotateCcw, Volume2, Turtle, X, Check } from 'lucide-react';
+import { BadgeCheck, Eye, Volume2, Turtle, X, Check } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { playEN, playPT, playExamplePair, stopAudio } from '../lib/audio';
+import { playEN, playPT, stopSpeak as stopAudio } from '../lib/speech';
 import { STRINGS } from '../lib/i18n';
 import { dueLabel } from '../lib/srs';
 import type { Card } from '../types';
@@ -12,54 +12,50 @@ function visiblePhoto(c: Card): string | undefined {
   return c.photo && c.photo.length > 0 ? c.photo : undefined;
 }
 
+const PILE_BADGE: Record<string, string> = {
+  new: '✨ Nova',
+  check: '✅ Checar',
+  study: '📚 Estudar',
+  practice: '📣 Praticar',
+  mastered: '📦 Dominado',
+};
+
 export default function StudyDeck() {
-  const { cards, pileFilter, answer, movePile, newPerDay, setTab, lang } = useStore();
+  const { cards, pileFilter, answer, setTab, setPileFilter, lang } = useStore();
   const t = STRINGS[lang];
   const pileName = (p: string) =>
-    p === 'new' ? t.pill_new : p === 'known' ? t.pile_known : p === 'learning' ? t.pile_learning : p === 'due' ? t.pile_study : t.pile_all;
+    p === 'new' ? t.pile_new : p === 'check' ? t.pile_check : p === 'study' ? t.pile_study
+    : p === 'practice' ? t.pile_practice : p === 'mastered' ? t.pile_mastered : t.pile_all;
   const [flipped, setFlipped] = useState(false);
   const [leaving, setLeaving] = useState<'left' | 'right' | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
 
   const queue = useMemo(() => {
-    const now = Date.now();
-    let list = [...cards].sort((a, b) => a.nextReviewAt - b.nextReviewAt || a.createdAt - b.createdAt);
-    if (pileFilter === 'due') list = list.filter((c) => c.nextReviewAt <= now);
-    else if (pileFilter !== 'all') list = list.filter((c) => c.pile === pileFilter);
-    else {
-      // Fila inteligente: vencidas primeiro + até N novas
-      const due = list.filter((c) => c.nextReviewAt <= now && c.pile !== 'new');
-      const news = list.filter((c) => c.pile === 'new').slice(0, newPerDay);
-      const rest = list.filter((c) => c.nextReviewAt <= now && c.pile === 'new').slice(newPerDay);
-      list = [...due, ...news, ...rest];
+    const sorted = [...cards].sort((a, b) => a.nextReviewAt - b.nextReviewAt || a.createdAt - b.createdAt);
+    if (pileFilter === 'all') return sorted;
+    const inPile = sorted.filter((c) => c.pile === pileFilter);
+    // Novas: não vistas primeiro; vistas (❌ mantém na caixa) vão para o fim e reaparecem depois.
+    if (pileFilter === 'new') {
+      const unseen = inPile.filter((c) => !c.seenCount);
+      const seen = inPile.filter((c) => (c.seenCount ?? 0) > 0);
+      return [...unseen, ...seen];
     }
-    return list;
-  }, [cards, pileFilter, newPerDay]);
+    return inPile;
+  }, [cards, pileFilter]);
 
   const current: Card | undefined = queue[0];
+  const totalInPile = useMemo(
+    () => (pileFilter === 'all' ? cards.length : cards.filter((c) => c.pile === pileFilter).length),
+    [cards, pileFilter],
+  );
+  const newSeen = useMemo(
+    () => (pileFilter === 'new' ? cards.filter((c) => c.pile === 'new' && (c.seenCount ?? 0) > 0).length : 0),
+    [cards, pileFilter],
+  );
 
   const respondingRef = useRef(false);
-  const isMaxBox = (current?.box ?? 0) >= 5;
-  const demote = () => {
-    if (!current || leaving || respondingRef.current) return;
-    respondingRef.current = true;
-    stopAudio();
-    movePile(current.id, 'learning');
-    window.setTimeout(() => {
-      setFlipped(false);
-      respondingRef.current = false;
-      setSessionCount((n) => n + 1);
-    }, 220);
-  };
   const respond = (known: boolean) => {
     if (!current || leaving || respondingRef.current) return;
-    // Última caixa: só Rebaixar faz sentido — Dominado seria no-op (só reagenda +30d).
-    // Swipe/tecla também caem aqui: direita ignora, esquerda rebaixa (sem XP fantasma).
-    if ((current.box ?? 0) >= 5) {
-      if (known) return;
-      demote();
-      return;
-    }
     respondingRef.current = true;
     stopAudio();
     setLeaving(known ? 'right' : 'left');
@@ -90,14 +86,27 @@ export default function StudyDeck() {
   if (!current) {
     return (
       <div className="text-center py-16 animate-pop-in">
-        <div className="text-7xl mb-4">🎉</div>
-        <h2 className="text-2xl font-black">{t.deck_done}</h2>
+        <div className="text-7xl mb-4 animate-float">🎉</div>
+        <h2 className="text-2xl font-black">{t.deck_box_done}</h2>
+        <p className="font-bold text-sapphire dark:text-carolina mt-1">
+          {pileFilter !== 'all' ? pileName(pileFilter) : t.pile_all} · {sessionCount} {t.deck_seen} 👏
+        </p>
         <p className="text-slate-500 dark:text-slate-400 mt-2 max-w-sm mx-auto">
-          {t.deck_done_sub}
+          {t.deck_box_done_sub}
         </p>
         <div className="flex gap-2 justify-center mt-6 flex-wrap">
+          {(Object.keys(PILE_BADGE) as Array<import('../types').Pile>).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPileFilter(p)}
+              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold active:scale-95"
+            >
+              {PILE_BADGE[p]}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 justify-center mt-3 flex-wrap">
           <button onClick={() => setTab('library')} className="px-4 py-2 rounded-xl bg-sapphire text-white font-bold hover:bg-celadon">{t.deck_view_all}</button>
-          <button onClick={() => setTab('library')} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 font-bold">{t.deck_add}</button>
           <button onClick={() => setTab('quiz')} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 font-bold">{t.deck_quiz}</button>
         </div>
         {sessionCount > 0 && <p className="mt-4 text-sm text-emerald-500 font-bold">+{sessionCount} {t.deck_session}</p>}
@@ -106,24 +115,28 @@ export default function StudyDeck() {
   }
 
   const photo = visiblePhoto(current);
+  const boxNum = Math.max(0, Math.min(4, current.box ?? 0));
 
   return (
     <div className="max-w-md mx-auto">
       <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
-        <span>{queue.length} {t.deck_in_queue} {pileFilter !== 'all' ? `· ${t.deck_filter}: ${pileName(pileFilter)}` : `· ${t.deck_smart}`}</span>
-        <span className="inline-flex items-center gap-1">⏱ {dueLabel(current.nextReviewAt, Date.now(), lang)} · 📦 caixa {current.box}/5</span>
+        <span>
+          {pileFilter === 'new'
+            ? `${newSeen}/${totalInPile} ${t.deck_seen} · ${queue.length} ${t.deck_in_queue}`
+            : `${queue.length} ${t.deck_in_queue}`}
+          {pileFilter !== 'all' ? ` · ${t.deck_filter}: ${pileName(pileFilter)}` : ` · ${t.deck_smart}`}
+        </span>
+        <span className="inline-flex items-center gap-1">⏱ {dueLabel(current.nextReviewAt, Date.now(), lang)} · 📦 caixa {boxNum}/4</span>
       </div>
-      {current.pile !== 'known' && (
-        <div className="mb-2 px-3 py-2 rounded-2xl bg-azure dark:bg-carolina/10 border border-celadon dark:border-carolina/20">
-          <div className="flex items-center justify-between text-[11px] font-bold text-sapphire dark:text-carolina">
-            <span>📦 Caixa {current.box} {t.deck_box_of} {t.pile_known}</span>
-            <span>{current.box >= 3 ? t.deck_ready : `${t.deck_missing} ${3 - current.box} ${t.deck_missing_end}`}</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-carolina/20 dark:bg-white/10 mt-1.5 overflow-hidden">
-            <div className="h-full rounded-full bg-gradient-to-r from-sapphire to-carolina transition-all" style={{ width: `${Math.min(100, (current.box / 3) * 100)}%` }} />
-          </div>
+      <div className="mb-2 px-3 py-2 rounded-2xl bg-azure dark:bg-carolina/10 border border-celadon dark:border-carolina/20">
+        <div className="flex items-center justify-between text-[11px] font-bold text-sapphire dark:text-carolina">
+          <span>📦 Caixa {boxNum} {t.deck_box_of} {t.pile_mastered} · {pileName(current.pile)}</span>
+          <span>{boxNum >= 4 ? t.deck_ready : `${t.deck_advance} → ${pileName(['new', 'check', 'study', 'practice', 'mastered'][boxNum + 1])}`}</span>
         </div>
-      )}
+        <div className="h-1.5 rounded-full bg-carolina/20 dark:bg-white/10 mt-1.5 overflow-hidden">
+          <div className="h-full rounded-full bg-gradient-to-r from-sapphire to-carolina transition-all" style={{ width: `${((boxNum + 1) / 5) * 100}%` }} />
+        </div>
+      </div>
 
       <div className="relative h-[380px] sm:h-[480px]">
         {/* Próximo card (fundo) */}
@@ -169,7 +182,7 @@ export default function StudyDeck() {
                     )}
                     <span className="absolute top-3 left-3 text-xs font-black px-2 py-1 rounded-full bg-black/40 text-white">{current.category}</span>
                     <span className="absolute top-3 right-3 text-xs font-black px-2 py-1 rounded-full bg-black/40 text-white">
-                      {current.pile === 'new' ? '✨ Nova' : current.pile === 'known' ? `✅ ${t.pile_known}` : `📚 ${t.pile_learning}`}
+                      {PILE_BADGE[current.pile] ?? current.pile}
                     </span>
                   </div>
                   <div className="bg-white dark:bg-slate-900 h-[calc(100%-9rem)] sm:h-[calc(100%-14rem)] p-3 sm:p-5 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2">
@@ -198,11 +211,11 @@ export default function StudyDeck() {
                   </div>
                   <div className="mt-2 flex flex-wrap justify-center gap-2" onClick={(e) => e.stopPropagation()}>
                     <button
-                      onClick={() => playExamplePair(current.exampleEN, current.examplePT)}
-                      title={t.deck_ex_both_title}
+                      onClick={() => playEN(current.exampleEN, true)}
+                      title={t.deck_ex_slow_title}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white text-slate-900 text-sm font-black hover:bg-slate-100 active:scale-95"
                     >
-                      <Volume2 size={16} /> {t.deck_ex_both}
+                      <Turtle size={16} /> {t.deck_ex_slow}
                     </button>
                     <button
                       onClick={() => playEN(current.exampleEN)}
@@ -234,31 +247,19 @@ export default function StudyDeck() {
 
         {/* Carimbos de acerto/erro */}
         {leaving === 'right' && (
-          <div className="absolute top-6 right-4 rotate-12 px-4 py-2 rounded-xl border-4 border-emerald-400 text-emerald-400 font-black text-2xl bg-white/80">{t.pile_known.toUpperCase()}! ✓</div>
+          <div className="absolute top-6 right-4 rotate-12 px-4 py-2 rounded-xl border-4 border-emerald-400 text-emerald-400 font-black text-2xl bg-white/80">{t.deck_advance.toUpperCase()}! ✓</div>
         )}
         {leaving === 'left' && (
-          <div className="absolute top-6 left-4 -rotate-12 px-4 py-2 rounded-xl border-4 border-rose-500 text-rose-500 font-black text-2xl bg-white/80">{t.pile_learning.toUpperCase()} ✗</div>
+          <div className="absolute top-6 left-4 -rotate-12 px-4 py-2 rounded-xl border-4 border-rose-500 text-rose-500 font-black text-2xl bg-white/80">{t.deck_prev.toUpperCase()} ✗</div>
         )}
       </div>
 
-      {/* Botões de resposta — última caixa (5/5): só Rebaixar */}
-      {isMaxBox ? (
-        <div className="mt-3 sm:mt-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center justify-between gap-2">
-          <p className="text-xs text-amber-700 dark:text-amber-300 font-semibold">{t.deck_rebox_max}</p>
-          <button
-            onClick={demote}
-            className="inline-flex items-center gap-1 text-xs font-black px-4 py-2.5 rounded-xl bg-amber-500 text-white hover:bg-amber-400 active:scale-95 whitespace-nowrap"
-          >
-            <RotateCcw size={14} /> {t.deck_demote}
-          </button>
-        </div>
-      ) : (
-      <>
+      {/* Botões de resposta: ✅ avança 1 caixa, ❌ volta 1 (em Novas, ❌ mantém e marca vista) */}
       <div className="flex items-center justify-center gap-3 sm:gap-4 mt-3 sm:mt-4">
         <button
           onClick={() => respond(false)}
           className="group w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
-          title={`${t.pile_learning} (←)`}
+          title={`${t.deck_prev} (←)`}
         >
           <X size={26} strokeWidth={3} />
         </button>
@@ -272,28 +273,15 @@ export default function StudyDeck() {
         <button
           onClick={() => respond(true)}
           className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
-          title={`${t.pile_known} (→)`}
+          title={`${t.deck_advance} (→)`}
         >
           <Check size={26} strokeWidth={3} />
         </button>
       </div>
       <div className="flex items-center justify-center gap-3 mt-2 sm:mt-3 text-[11px] sm:text-xs">
-        <span className="inline-flex items-center gap-1 text-rose-500 font-bold"><X size={12} /> {t.pile_learning} · {t.deck_fixes}</span>
-        <span className="inline-flex items-center gap-1 text-emerald-500 font-bold"><BadgeCheck size={12} /> {t.pile_known} · {t.deck_sleeps}</span>
+        <span className="inline-flex items-center gap-1 text-rose-500 font-bold"><X size={12} /> {t.deck_prev} · {t.deck_fixes}</span>
+        <span className="inline-flex items-center gap-1 text-emerald-500 font-bold"><BadgeCheck size={12} /> {t.deck_advance} · {t.deck_sleeps}</span>
       </div>
-
-      {/* Rebaixar mesmo se souber */}
-      <div className="mt-2 sm:mt-4 p-2 sm:p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center justify-between gap-2">
-        <p className="text-xs text-amber-700 dark:text-amber-300 font-semibold">{t.deck_rebox} <b>{t.pile_learning}</b>:</p>
-        <button
-          onClick={() => movePile(current.id, 'learning')}
-          className="inline-flex items-center gap-1 text-xs font-black px-3 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-400 active:scale-95 whitespace-nowrap"
-        >
-          <RotateCcw size={14} /> {t.deck_rever}
-        </button>
-      </div>
-      </>
-      )}
     </div>
   );
 }

@@ -104,3 +104,9 @@ export function stopSpeak(): void {
     /* noop */
   }
 }
+
+/** Aliases compat (voz rápida via Web Speech — sem Piper/proxy). */
+export const playEN = speakEN;
+export const playPT = speakPT;
+export const playExamplePair = speakExamplePair;
+export const stopAudio = stopSpeak;

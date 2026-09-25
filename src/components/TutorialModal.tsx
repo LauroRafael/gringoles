@@ -19,7 +19,7 @@ export function wasTutorialSeen(): boolean {
   }
 }
 
-const EMOJIS = ['🃏', '🔝', '👆', '🔊', '📦', '🎯', '☁️'];
+const EMOJIS = ['🃏', '📦', '👆', '🔊', '🧠', '🎯', '☁️'];
 
 export default function TutorialModal() {
   const { showTutorial, setShowTutorial, lang } = useStore();
@@ -50,7 +50,7 @@ export default function TutorialModal() {
       >
         {/* Faixa colorida */}
         <div className="bg-gradient-to-r from-sapphire via-carolina to-celadon px-5 pt-5 pb-4 text-white relative">
-          <button onClick={close} className="absolute top-3 right-3 p-1.5 rounded-full bg-black/25 hover:bg-black/40" title="Fechar">
+          <button onClick={close} className="absolute top-3 right-3 p-1.5 rounded-full bg-black/25 hover:bg-black/40" title={t.tut_close}>
             <X size={16} />
           </button>
           <p className="text-xs font-bold opacity-80">{t.tut_sub}</p>

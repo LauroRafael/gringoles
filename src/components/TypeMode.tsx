@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Volume2, Keyboard, Eye } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { playEN } from '../lib/audio';
+import { playEN } from '../lib/speech';
 import { STRINGS } from '../lib/i18n';
 import type { Card } from '../types';
 

@@ -1,9 +1,9 @@
-import { BookOpen, Flame, Moon, Sparkles, Sun, Megaphone, CheckCircle2, LogIn, LogOut, Cloud, FlaskConical, CircleHelp } from 'lucide-react';
+import { BookOpen, Flame, Moon, Sparkles, Sun, Megaphone, CheckCircle2, Package, LogIn, LogOut, Cloud, FlaskConical, CircleHelp } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { STRINGS } from '../lib/i18n';
 import type { Pile } from '../types';
 
-interface PileTab { key: Pile | 'all' | 'due'; label: string; icon: React.ReactNode; active: string; activeSoft: string }
+interface PileTab { key: Pile; label: string; icon: React.ReactNode; active: string; activeSoft: string }
 
 export default function TopBar() {
   const { cards, pileFilter, setPileFilter, setTab, theme, toggleTheme, xp, dayStreak,
@@ -11,19 +11,17 @@ export default function TopBar() {
   const t = STRINGS[lang];
   const PILES: PileTab[] = [
     { key: 'new', label: t.pile_new, icon: <Sparkles size={16} />, active: 'bg-sky-500/80 border-sky-400/60 shadow-sky-500/25', activeSoft: 'bg-sky-500/80 border-sky-400/60' },
-    { key: 'due', label: t.pile_study, icon: <BookOpen size={16} />, active: 'bg-sapphire/80 border-celadon/60 shadow-sapphire/25', activeSoft: 'bg-sapphire/80 border-celadon/60' },
-    { key: 'learning', label: t.pile_learning, icon: <Megaphone size={16} />, active: 'bg-rose-500/80 border-rose-400/60 shadow-rose-500/25', activeSoft: 'bg-rose-500/80 border-rose-400/60' },
-    { key: 'known', label: t.pile_known, icon: <CheckCircle2 size={16} />, active: 'bg-emerald-500/80 border-emerald-400/60 shadow-emerald-500/25', activeSoft: 'bg-emerald-500/80 border-emerald-400/60' },
-    // Pilha "Todas" desativada por enquanto ( filtro 'all' segue funcionando via código ) — descomente para reexibir:
-    // { key: 'all', label: 'Todas', icon: <BookOpen size={16} />, active: 'bg-slate-700/80 border-slate-500/60 shadow-slate-700/25', activeSoft: 'bg-slate-700/80 border-slate-500/60' },
+    { key: 'check', label: t.pile_check, icon: <CheckCircle2 size={16} />, active: 'bg-teal-500/80 border-teal-400/60 shadow-teal-500/25', activeSoft: 'bg-teal-500/80 border-teal-400/60' },
+    { key: 'study', label: t.pile_study, icon: <BookOpen size={16} />, active: 'bg-sapphire/80 border-celadon/60 shadow-sapphire/25', activeSoft: 'bg-sapphire/80 border-celadon/60' },
+    { key: 'practice', label: t.pile_practice, icon: <Megaphone size={16} />, active: 'bg-rose-500/80 border-rose-400/60 shadow-rose-500/25', activeSoft: 'bg-rose-500/80 border-rose-400/60' },
+    { key: 'mastered', label: t.pile_mastered, icon: <Package size={16} />, active: 'bg-emerald-500/80 border-emerald-400/60 shadow-emerald-500/25', activeSoft: 'bg-emerald-500/80 border-emerald-400/60' },
   ];
-  const now = Date.now();
-  const counts = {
+  const counts: Record<Pile, number> = {
     new: cards.filter((c) => c.pile === 'new').length,
-    learning: cards.filter((c) => c.pile === 'learning').length,
-    known: cards.filter((c) => c.pile === 'known').length,
-    due: cards.filter((c) => c.nextReviewAt <= now).length,
-    all: cards.length,
+    check: cards.filter((c) => c.pile === 'check').length,
+    study: cards.filter((c) => c.pile === 'study').length,
+    practice: cards.filter((c) => c.pile === 'practice').length,
+    mastered: cards.filter((c) => c.pile === 'mastered').length,
   };
 
   return (
@@ -32,7 +30,7 @@ export default function TopBar() {
         <div className="max-w-5xl mx-auto px-3 sm:px-4 pt-1 sm:pt-4 pb-1 sm:pb-3">
           {/* Primeira dobra: logo + botões (mobile e desktop) */}
           <div className="flex items-center justify-between gap-2 sm:gap-3">
-            <button onClick={() => setTab('study')} className="flex flex-col items-end justify-center text-left shrink-0">
+            <button onClick={() => { setPileFilter('new'); setTab('study'); }} className="flex flex-col items-end justify-center text-left shrink-0">
               <img src="/img/logo.png" alt="Gringolês" className="h-8 sm:h-10 object-contain dark:invert dark:hue-rotate-180" />
               <span className="hidden sm:block text-[10px] leading-tight font-medium text-slate-600 dark:text-slate-300">{t.top_subtitle}</span>
             </button>
@@ -41,7 +39,7 @@ export default function TopBar() {
               <span title="XP" className="shrink-0 hidden sm:inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                 ⚡ {xp} XP
               </span>
-              <span title="Dias seguidos" className="shrink-0 hidden sm:inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
+              <span title={t.top_streak_title} className="shrink-0 hidden sm:inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
                 <Flame size={14} /> {dayStreak}
               </span>
               {!user ? (
@@ -84,8 +82,8 @@ export default function TopBar() {
                 </button>
               ) : (
                 <button
-                  onClick={() => { if (confirm(`Sair da conta ${user.email}? ${t.app_logout_confirm}`)) void signOut(); }}
-                  title={`${user.email} — sair e voltar ao demo`}
+                  onClick={() => { if (confirm(`${t.app_logout_ask} ${user.email}? ${t.app_logout_confirm}`)) void signOut(); }}
+                  title={`${user.email} — ${t.top_logout_title}`}
                   className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-2 rounded-full border border-slate-200 dark:border-white/10 text-[11px] sm:text-xs font-black active:scale-95 max-w-28 sm:max-w-32 truncate"
                 >
                   <LogOut size={13} /> <span className="truncate max-w-16">{user.email.split('@')[0]}</span>
@@ -94,8 +92,8 @@ export default function TopBar() {
             </div>
           </div>
 
-          {/* Mobile: caixas quadradas glass com número no centro e título no bottom */}
-          <div className="sm:hidden grid grid-cols-4 gap-3 mt-2">
+          {/* Mobile: 5 caixas quadradas glass com número no centro e título no bottom */}
+          <div className="sm:hidden grid grid-cols-5 gap-2 mt-2">
             {PILES.map((p) => {
               const active = pileFilter === p.key;
               return (
@@ -157,7 +155,7 @@ export default function TopBar() {
                 <span title="XP" className="inline-flex items-center gap-0.5 text-[11px] font-black px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                   ⚡ {xp}
                 </span>
-                <span title="Dias seguidos" className="inline-flex items-center gap-0.5 text-[11px] font-black px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
+                <span title={t.top_streak_title} className="inline-flex items-center gap-0.5 text-[11px] font-black px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
                   🔥 {dayStreak}
                 </span>
               </span>

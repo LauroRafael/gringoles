@@ -3,7 +3,6 @@ import { ShieldCheck, Trash2, RotateCcw, Users, BookOpen, CalendarDays, Plus, Pe
 import { supabase } from '../lib/supabase';
 import { STRINGS } from '../lib/i18n';
 import { useStore } from '../store/useStore';
-import { playEN, playPT, downloadPiperVoice, piperStoredVoices, removePiperVoice, lastEngine } from '../lib/audio';
 
 interface Profile {
   id: string;
@@ -19,30 +18,16 @@ interface BankRow {
   example_en: string; example_pt: string; emoji: string; category: string; active: boolean;
 }
 
-/** Vozes neurais offline (Piper, MIT) — IDs exatos do pacote. */
-const PIPER_EN = [
-  { id: 'en_US-amy-medium', label: 'Amy · feminina' },
-  { id: 'en_US-lessac-medium', label: 'Lessac · feminina' },
-  { id: 'en_US-ryan-medium', label: 'Ryan · masculina' },
-  { id: 'en_US-danny-low', label: 'Danny · masculina · leve' },
-];
-const PIPER_PT = [
-  { id: 'pt_BR-faber-medium', label: 'Faber' },
-  { id: 'pt_BR-edresson-low', label: 'Edresson · leve' },
-];
-
 export default function AdminPanel() {
   const { role, user, newPerDay, setNewPerDay, autoNewPerDay, setAutoNewPerDay,
     autoAddEnabled, setAutoAddEnabled, autoAddTimes, setAutoAddTimes,
-    demoMax, setDemoMax, adminCreateUser, manageUser, lang,
-    ttsEngine, setTtsEngine, ttsVoiceEN, setTtsVoiceEN, ttsVoicePT, setTtsVoicePT,
-    ttsRate, setTtsRate } = useStore();
+    demoMax, setDemoMax, adminCreateUser, manageUser, lang } = useStore();
   const t = STRINGS[lang];
   const [nuName, setNuName] = useState('');
   const [nuEmail, setNuEmail] = useState('');
   const [nuPass, setNuPass] = useState('');
   const db = () => {
-    if (!supabase) throw new Error('Supabase não configurado.');
+    if (!supabase) throw new Error(t.adm_nodb);
     return supabase;
   };
   const [users, setUsers] = useState<Profile[]>([]);
@@ -51,19 +36,6 @@ export default function AdminPanel() {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [storedVoices, setStoredVoices] = useState<string[]>([]);
-  const [dlPct, setDlPct] = useState<Record<string, number>>({});
-  const [dlBusy, setDlBusy] = useState<string | null>(null);
-  const [lastTts, setLastTts] = useState('—');
-
-  const testEN = () => {
-    playEN('Hello! This is my English voice.');
-    window.setTimeout(() => setLastTts(lastEngine()), 2500);
-  };
-  const testPT = () => {
-    playPT('Olá! Esta é minha voz em português.');
-    window.setTimeout(() => setLastTts(lastEngine()), 2500);
-  };
   const [editingBank, setEditingBank] = useState<Partial<BankRow> & { isNew?: boolean } | null>(null);
 
   const flash = (m: string) => {
@@ -86,7 +58,6 @@ export default function AdminPanel() {
 
   useEffect(() => {
     void reload();
-    void piperStoredVoices().then(setStoredVoices).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -137,25 +108,6 @@ export default function AdminPanel() {
       const res = await manageUser('delete', id);
       flash(res.msg);
     });
-
-  const ensureVoice = async (id: string) => {
-    setDlBusy(id);
-    setDlPct((p) => ({ ...p, [id]: 0 }));
-    try {
-      const ok = await downloadPiperVoice(id, (pct) => setDlPct((p) => ({ ...p, [id]: pct })));
-      const stored = await piperStoredVoices().catch(() => [] as string[]);
-      setStoredVoices(stored);
-      flash(ok ? `✅ ${t.adm_tts_downloaded}` : `❌ ${t.adm_tts_download_fail}`);
-    } finally {
-      setDlBusy(null);
-    }
-  };
-
-  const dropVoice = async (id: string) => {
-    if (!confirm(`${t.adm_tts_remove_confirm}`)) return;
-    await removePiperVoice(id);
-    setStoredVoices(await piperStoredVoices().catch(() => [] as string[]));
-  };
 
   const saveBank = () =>
     run('bank-save', async () => {
@@ -246,70 +198,6 @@ export default function AdminPanel() {
       </div>
 
       <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
-        <p className="font-black text-sm mb-1">🔊 {t.adm_tts}</p>
-        <p className="text-xs text-slate-500 mb-3">{t.adm_tts_sub}</p>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <div className="inline-flex rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden" role="radiogroup" aria-label={t.adm_tts}>
-            {(['proxy', 'piper'] as const).map((e) => (
-              <button
-                key={e}
-                onClick={() => setTtsEngine(e)}
-                aria-pressed={ttsEngine === e}
-                className={`px-3 py-2 text-xs font-black active:scale-95 ${ttsEngine === e ? 'bg-sapphire text-white' : 'opacity-70'}`}
-              >
-                {e === 'proxy' ? `☁️ ${t.adm_tts_cloud}` : `📴 ${t.adm_tts_piper}`}
-              </button>
-            ))}
-          </div>
-          <label className="font-bold">🇺🇸
-            <select value={ttsVoiceEN} onChange={(e) => setTtsVoiceEN(e.target.value)} className="ml-2 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-xs">
-              {PIPER_EN.map((v) => (
-                <option key={v.id} value={v.id}>{v.label}{storedVoices.includes(v.id) ? ' ✅' : ''}</option>
-              ))}
-            </select>
-          </label>
-          <label className="font-bold">🇧🇷
-            <select value={ttsVoicePT} onChange={(e) => setTtsVoicePT(e.target.value)} className="ml-2 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-xs">
-              {PIPER_PT.map((v) => (
-                <option key={v.id} value={v.id}>{v.label}{storedVoices.includes(v.id) ? ' ✅' : ''}</option>
-              ))}
-            </select>
-          </label>
-          <label className="font-bold inline-flex items-center gap-2">{t.adm_tts_rate}
-            <input type="range" min={0.5} max={1.5} step={0.1} value={ttsRate} onChange={(e) => setTtsRate(Number(e.target.value))} className="w-28" />
-            <span className="text-xs tabular-nums w-8">{ttsRate.toFixed(1)}x</span>
-          </label>
-          <button onClick={testEN} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-black active:scale-95">▶ 🇺🇸 {t.adm_tts_test}</button>
-          <button onClick={testPT} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-black active:scale-95">▶ 🇧🇷 {t.adm_tts_test}</button>
-          <span className="text-[11px] text-slate-400">🎙️ {t.adm_tts_last}: <b>{lastTts}</b></span>
-        </div>
-        {ttsEngine === 'piper' && (
-          <div className="mt-3 grid gap-1.5">
-            {[ttsVoiceEN, ttsVoicePT].map((id) => {
-              const has = storedVoices.includes(id);
-              const busyDl = dlBusy === id;
-              return (
-                <div key={id} className="flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5">
-                  <span className="flex-1 truncate">{id} {has ? `· ✅ ${t.adm_tts_downloaded}` : `· ⬇️ ~60MB`}</span>
-                  {!has && (
-                    <button disabled={dlBusy !== null} onClick={() => void ensureVoice(id)} className="px-3 py-1.5 rounded-lg bg-sapphire text-white font-black disabled:opacity-50 active:scale-95">
-                      {busyDl ? `${t.adm_tts_downloading} ${dlPct[id] ?? 0}%` : `⬇️ ${t.adm_tts_download}`}
-                    </button>
-                  )}
-                  {has && (
-                    <button onClick={() => void dropVoice(id)} className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 active:scale-95">
-                      🗑 {t.adm_tts_remove}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            <p className="text-[11px] text-slate-400">{t.adm_tts_size_note}</p>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
         <p className="font-black text-sm mb-1">{t.adm_add_user}</p>
         <p className="text-xs text-slate-500 mb-3">{t.adm_add_sub}</p>
         <div className="grid sm:grid-cols-4 gap-2 text-xs font-bold">
@@ -342,10 +230,10 @@ export default function AdminPanel() {
               {u.is_blocked && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-500 text-white">⛔ {t.adm_blocked}</span>}
               <span className="text-xs text-slate-500">⚡{u.xp} XP</span>
               <span className="flex-1" />
-              <button disabled={busy !== null} onClick={() => resetUser(u.id, u.display_name || u.id.slice(0, 8))} title="Zerar progresso" className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 disabled:opacity-50">
+              <button disabled={busy !== null} onClick={() => resetUser(u.id, u.display_name || u.id.slice(0, 8))} title={t.adm_zero_title} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 disabled:opacity-50">
                 <RotateCcw size={12} /> {busy === `reset-${u.id}` ? '...' : t.adm_zero}
               </button>
-              <button disabled={busy !== null} onClick={() => setRole(u.id, u.display_name || u.id.slice(0, 8), u.role === 'admin' ? 'user' : 'admin')} title="Alternar papel" className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 disabled:opacity-50">
+              <button disabled={busy !== null} onClick={() => setRole(u.id, u.display_name || u.id.slice(0, 8), u.role === 'admin' ? 'user' : 'admin')} title={t.adm_role_title} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 disabled:opacity-50">
                 <ShieldCheck size={12} /> {u.role === 'admin' ? t.adm_demote : t.adm_promote}
               </button>
               {u.id !== user?.id && (
@@ -395,12 +283,12 @@ export default function AdminPanel() {
             <div className="grid grid-cols-2 gap-2 text-xs font-bold">
               <label>EN*<input value={editingBank.en ?? ''} onChange={(e) => setEditingBank({ ...editingBank, en: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
               <label>PT*<input value={editingBank.pt ?? ''} onChange={(e) => setEditingBank({ ...editingBank, pt: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
-              <label>Como se fala<input value={editingBank.phonetic_br ?? ''} onChange={(e) => setEditingBank({ ...editingBank, phonetic_br: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
+              <label>{t.adm_bank_f_say}<input value={editingBank.phonetic_br ?? ''} onChange={(e) => setEditingBank({ ...editingBank, phonetic_br: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
               <label>IPA<input value={editingBank.ipa ?? ''} onChange={(e) => setEditingBank({ ...editingBank, ipa: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
-              <label className="col-span-2">Exemplo EN<input value={editingBank.example_en ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_en: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
-              <label className="col-span-2">Exemplo PT<input value={editingBank.example_pt ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_pt: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
-              <label>Emoji<input value={editingBank.emoji ?? ''} onChange={(e) => setEditingBank({ ...editingBank, emoji: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
-              <label>Categoria<input value={editingBank.category ?? ''} onChange={(e) => setEditingBank({ ...editingBank, category: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
+              <label className="col-span-2">{t.adm_bank_f_exen}<input value={editingBank.example_en ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_en: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
+              <label className="col-span-2">{t.adm_bank_f_expt}<input value={editingBank.example_pt ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_pt: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
+              <label>{t.adm_bank_f_emoji}<input value={editingBank.emoji ?? ''} onChange={(e) => setEditingBank({ ...editingBank, emoji: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
+              <label>{t.adm_bank_f_cat}<input value={editingBank.category ?? ''} onChange={(e) => setEditingBank({ ...editingBank, category: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
             </div>
             <button onClick={saveBank} disabled={busy !== null || !editingBank.en?.trim() || !editingBank.pt?.trim()} className="mt-3 w-full py-3 rounded-2xl bg-sapphire text-white font-black disabled:opacity-40">
               💾 {busy === 'bank-save' ? t.adm_bank_saving : t.adm_bank_save}

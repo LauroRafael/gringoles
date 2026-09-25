@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import data from '@emoji-mart/data';
 import { Picker } from 'emoji-mart';
 import { useStore } from '../store/useStore';
+import { STRINGS } from '../lib/i18n';
 
 interface Props {
   value: string;
@@ -52,7 +53,7 @@ export default function EmojiPicker({ value, onPick }: Props) {
     <div ref={wrapRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        title="Trocar emoji (buscar em ~1800)"
+        title={STRINGS[lang].lib_emoji_title}
         className="text-3xl p-1.5 rounded-xl bg-slate-100 dark:bg-white/10 hover:scale-110 active:scale-95 transition"
       >
         {value || '📚'} <span className="text-xs align-middle">🔍</span>

@@ -29,19 +29,19 @@
 
 | Feature | Description |
 |---------|-------------|
-| 🃏 **Swipe nos cards** | Arraste para a direita = `Dominado` ✅, para a esquerda = `Praticar` ❌ (ou use `←` / `→` / botões, com anti-duplo-toque) |
-| 📦 **Progresso da caixa** | Selo `Caixa X de 3 rumo ao Dominado` + barrinha no card — 3 acertos seguidos levam a palavra a `Dominado` |
+| 🃏 **Swipe nos cards** | Arraste para a direita = avança 1 caixa ✅, para a esquerda = volta 1 caixa ❌ (ou use `←` / `→` / botões, com anti-duplo-toque; em Novas o ❌ só marca como vista) |
+| 📦 **Progresso da caixa** | Selo `Caixa X de 4 rumo ao Dominado` + barrinha `X/5` no card — acertou avança, errou volta; zerou a caixa, ganha celebração 🎉 |
 | 📅 **Palavras automáticas** | Todo dia o app injeta N palavras novas do banco (307 curadas, offline), sem repetir; quantidade configurável + botão "Adiantar lote". **Bank esgotado?** Gera novas sozinho via Groq (com pronúncia, frases, emoji e categoria) — sem ninguém adicionar manualmente |
 | 🚫 **Anti-duplicadas** | Alerta ao digitar palavra repetida, com opção de ver o card ou salvar mesmo assim; imports relatam ignoradas |
 | 📥 **Import CSV/Anki** | Botão `CSV` aceita `.csv/.tsv/.txt` com colunas `EN;PT;fonética;IPA;exEN;exPT;categoria` (tab = formato Anki) |
 | 🔍 **Ajuda de preenchimento** | Botão no modal busca IPA + exemplo em inglês na API gratuita dictionaryapi.dev (só preenche campos vazios) |
 | 🖼️ **Foto otimizada** | Upload comprimido (máx. 800px, JPEG) + medidor de uso do armazenamento local em Stats |
-| 🔝 **3 pilhas no topo** | `✨ Novas` (sugeridas + manuais) · `📚 Praticar` (para fixar) · `✅ Dominado` (dominadas) — com contadores ao vivo |
-| 🔄 **Rever para fixar** | Qualquer palavra, mesmo `Dominado`, pode voltar para `Praticar` com 1 clique (botão `Rever` no card) |
-| 🗣️ **Voz + pronúncia BR** | Cada card tem áudio TTS en-US (normal + 🐢 lento), pronúncia aportuguesada (`Water → "uóra"`) e IPA (`/ˈwɔːtər/`) |
+| 🔝 **5 caixas no topo** | `✨ Novas` · `✅ Checar` · `📚 Estudar` · `📣 Praticar` · `📦 Dominado` — com contadores ao vivo; abrir o app, voltar para Estudar ou clicar na logo sempre volta para Novas |
+| 🔄 **Voltar para fixar** | Qualquer palavra pode voltar 1 caixa com o ❌; `Dominado → Praticar` com 1 clique na Biblioteca |
+| 🗣️ **Voz + pronúncia BR** | Cada card tem áudio instantâneo via Web Speech API en-US (normal + 🐢 lento, voz Google no Chrome), pronúncia aportuguesada (`Water → "uóra"`) e IPA (`/ˈwɔːtər/`) |
 | 🖼️ **Imagem flexível** | Emoji + gradiente por padrão, com **upload de foto própria** por card (salva local, sem internet) |
 | 🌓 **Claro / Escuro** | Toggle no topo com persistência + detecção do sistema |
-| 🧠 **Repetição espaçada** | Algoritmo Leitner de 6 caixas: `0, 1, 3, 7, 15, 30 dias` — errou, revisa agora; acertou, some por dias |
+| 🧠 **Repetição espaçada** | SRS em 5 caixas: `Novas → Checar → Estudar → Praticar → Dominado` (`0, 1, 3, 7, 15 dias`) — acertou avança, errou volta 1; sem ordem obrigatória |
 | 🎯 **Modo Quiz** | Múltipla escolha com 10 perguntas embaralhadas por rodada |
 | ⌨️ **Modo Digitação** | Ouça em inglês e digite a palavra (com dica de pronúncia) |
 | ⚡ **Gamificação** | XP (+10 acerto / +4 tentativa), níveis, streak de dias 🔥 e gráfico de atividade |
@@ -122,25 +122,29 @@ Para **parar** o servidor: `Ctrl + C` no terminal onde ele está rodando.
 
 | Tecla | Ação |
 |-------|------|
-| `←` | Praticar ❌ |
-| `→` | Dominado ✅ |
+| `←` | Voltar 1 caixa ❌ |
+| `→` | Avançar 1 caixa ✅ |
 | `Espaço` | Virar o card |
 
 ---
 
 ## 🧠 Como funciona a fixação (SRS)
 
-Cada acerto sobe 1 caixa Leitner; cada erro zera e o card **volta imediatamente** para a fila:
+**SRS (Spaced Repetition System, Sistema de Repetição Espaçada)** = revisar cada palavra **na hora certa de esquecer**. O cérebro fixa melhor com revisões curtas e espaçadas do que com maratonas — cada reencontro na véspera do esquecimento fortalece a memória de longo prazo.
 
-| Caixa | 0 | 1 | 2 | 3 | 4 | 5 |
-|-------|---|---|---|---|---|---|
-| Próxima revisão | agora | 1 dia | 3 dias | 7 dias | 15 dias | 30 dias |
-| Pilha | 📚 Praticar | 📚 Praticar | 📚 Praticar | ✅ Dominado | ✅ Dominado | ✅ Dominado |
+No Gringolês o SRS é visual e simples, em **5 caixas**:
 
-- Fila de estudo = **vencidas primeiro** + até **N palavras novas/dia** na fila (configurável em Stats, padrão 20).
-- Lote **automático diário** = N palavras do banco injetadas ao abrir o app (configurável em Stats, padrão 5, com liga/desliga). Dedupe por `bankId` + EN normalizado: nunca repete.
+| Caixa | 0 Novas ✨ | 1 Checar ✅ | 2 Estudar 📚 | 3 Praticar 📣 | 4 Dominado 📦 |
+|-------|-----------|------------|-------------|--------------|--------------|
+| Próxima revisão | agora | 1 dia | 3 dias | 7 dias | 15 dias |
+
+- **Avançar (✅, →, swipe direita)**: a palavra anda **1 caixa** (`Novas 10 → 9`, `Checar 0 → 1`). Palavras novas **nunca** pulam para outra caixa sozinhas — só com a sua ação.
+- **Voltar (❌, ←, swipe esquerda)**: a palavra **volta 1 caixa** para reforçar. Exceção: em **Novas** não há anterior — o ❌ só **marca como vista** (`1/9`, `2/8`…) e a palavra continua lá, reaparecendo depois das não vistas.
+- **Sem sistema de "3 acertos na mesma caixa"**: a repetição acontece **percorrendo as caixas**. Sem ordem obrigatória — estude qualquer caixa, no seu ritmo, para o cérebro absorver.
+- **Caixa zerada = festa 🎉**: mensagem animada de conclusão — *"Volte mais tarde para reforçar e continuar"*.
+- Lote **automático diário** = N palavras do banco injetadas em **Novas** (configurável, padrão 5, com liga/desliga). Se o app estiver aberto, o lote entra **em tempo real** (polling 60s + foco/online) sem precisar fechar e abrir. Dedupe por `bankId` + EN normalizado: nunca repete.
 - **Geração automática (usuários logados)**: quando o `word_bank` esgota para um usuário, a Edge Function `generate-bank-words` (Supabase) cria novas via **Groq** — EN, PT, fonética aportuguesada, IPA (validado no dictionaryapi.dev), frases EN/PT, emoji e categoria (inclusive categorias novas) — insere no bank e entrega o lote. Sem `GROQ_API_KEY`, o app mantém o comportamento antigo sem quebrar.
-- Botão **Rever** no card força `Dominado → Praticar` a qualquer momento.
+- Na Biblioteca, qualquer palavra pode ir direto para `📦 Dominado` ou voltar para `📣 Praticar`.
 
 ---
 
@@ -151,7 +155,7 @@ Cada acerto sobe 1 caixa Leitner; cada erro zera e o card **volta imediatamente*
 - **Animações:** Framer Motion (drag/swipe do deck de cards)
 - **Ícones:** lucide-react
 - **Estado:** Zustand + persist (localStorage, chave `anki-flow-v1`)
-- **Voz:** Web Speech API (`speechSynthesis`, `en-US` + `pt-BR`, sem custo/chave)
+- **Voz:** Web Speech API pura (`speechSynthesis`, `en-US` + `pt-BR`, sem custo/chave, instantânea — voz Google no Chrome)
 - **Backend:** Supabase (Postgres + Auth e-mail/senha + Storage) via `@supabase/supabase-js`, com RLS por usuário
 - **Geração de palavras:** Edge Function Deno (`generate-bank-words`) + **Groq** (modelo escolhido dinamicamente via `/models`) com validação de IPA no dictionaryapi.dev
 - **Emoji:** `emoji-mart` + `@emoji-mart/data` (Picker vanilla em popover, ~1800 emojis com busca)
@@ -177,8 +181,8 @@ src/
 │   ├── bank1.ts / bank2.ts     # ~220 palavras do lote diário (mesmo formato)
 │   └── bank.ts                 # Seleção sem repetição + materialização em Card
 ├── lib/
-│   ├── srs.ts                  # Leitner: intervalos, vencimento, rótulos
-│   ├── speech.ts               # Web Speech API (en-US/pt-BR, normal/lento, exemplo bilíngue)
+│   ├── srs.ts                  # SRS 5 caixas: intervalos, box↔pile, normalização legada
+│   ├── speech.ts               # Web Speech API pura (en-US/pt-BR, normal/lento, exemplo bilíngue)
 │   ├── dedupe.ts               # Normalização EN + novas vs. duplicadas
 │   ├── image.ts                # Compressão de foto + uso do localStorage
 │   └── dictionary.ts           # Lookup IPA/exemplo (dictionaryapi.dev)
@@ -190,13 +194,13 @@ src/
 │   ├── migration_002_gamification.sql  # XP/streaks em profiles + admin
 │   └── functions/generate-bank-words/  # Edge Function: gera palavras via Groq quando o bank esgota
 └── components/
-    ├── TopBar.tsx              # Logo + selo DEMO/FULL/ADMIN + XP/streak + tema + pilhas
+    ├── TopBar.tsx              # Logo + selo DEMO/FULL/ADMIN + XP/streak + tema + 5 caixas
     ├── AuthModal.tsx           # Entrar / criar conta + migração do demo
     ├── InviteModal.tsx         # Convite ao bater o teto de 100 (demo)
     ├── ChangePasswordGate.tsx  # Troca de senha obrigatória (admin 1º acesso)
     ├── AdminPanel.tsx          # Usuários, métricas, banco de palavras
     ├── EmojiPicker.tsx         # emoji-mart em popover com busca
-    ├── StudyDeck.tsx           # Deck de swipe: flip, TTS, Rever
+    ├── StudyDeck.tsx           # Deck de swipe: flip, voz, avançar/voltar, celebração
     ├── Library.tsx             # Busca, filtros, CRUD, upload foto, import/export JSON
     ├── QuizMode.tsx            # Múltipla escolha (10/rodada)
     ├── TypeMode.tsx            # Ditado: ouça e digite
@@ -241,7 +245,7 @@ Contributions are welcome! Feel free to open an issue or submit a pull request.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-Ideias futuras: decks por tema, modo infantil, TTS neural (OpenAI/Google), sincronização em nuvem, PWA com service-worker completo.
+Ideias futuras: decks por tema, modo infantil, sincronização em nuvem, PWA com service-worker completo.
 
 ---
 

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Search, Trash2, Upload, Download, Volume2, RotateCcw, X, Lock, Crown } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { playEN } from '../lib/audio';
+import { playEN } from '../lib/speech';
 import { findDuplicate } from '../lib/dedupe';
 import { compressImage } from '../lib/image';
 import { completeWord } from '../lib/cloud';
@@ -42,6 +42,12 @@ const capFirst = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 export default function Library() {
   const { cards, user, addCard, updateCard, removeCard, movePile, importCards, setShowInvite, lang, queuePhoto, setCloudNotice } = useStore();
   const t = STRINGS[lang];
+  const pileLabel = (p: Card['pile']) =>
+    p === 'new' ? t.pile_new : p === 'check' ? t.pile_check : p === 'study' ? t.pile_study
+    : p === 'practice' ? t.pile_practice : t.pile_mastered;
+  const pileBadge = (p: Card['pile']) =>
+    p === 'new' ? `✨ ${t.pill_new}` : p === 'check' ? `✅ ${t.pile_check}` : p === 'study' ? `📚 ${t.pile_study}`
+    : p === 'practice' ? `📣 ${t.pile_practice}` : `📦 ${t.pile_mastered}`;
   /** Demo = vitrine bloqueada: tudo visível, edição só na full. */
   const locked = !user;
   const needFull = (acao: string) =>
@@ -147,7 +153,7 @@ export default function Library() {
           queuePhoto(cardId, dataUrl);
           setEditing({ ...editing, photo: dataUrl, photoUrl: '' });
           try {
-            setCloudNotice('⚠️ Foto salva aqui; envio para a nuvem pendente — tento sozinho.');
+            setCloudNotice(t.lib_photo_pending);
           } catch { /* noop */ }
         }
       } else {
@@ -272,14 +278,14 @@ export default function Library() {
         </div>
       )}
 
-      <div className="flex gap-2 mb-4 text-sm font-bold">
-        {(['all', 'new', 'learning', 'known'] as const).map((f) => (
+      <div className="flex gap-2 mb-4 text-sm font-bold flex-wrap">
+        {(['all', 'new', 'check', 'study', 'practice', 'mastered'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             className={`px-3 py-1.5 rounded-full border active:scale-95 ${filter === f ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent' : 'border-slate-200 dark:border-white/10'}`}
           >
-            {f === 'all' ? `${t.pile_all} (${cards.length})` : f === 'new' ? `${t.pile_new} (${cards.filter((c) => c.pile === 'new').length})` : f === 'learning' ? `${t.pile_learning} (${cards.filter((c) => c.pile === 'learning').length})` : `${t.pile_known} (${cards.filter((c) => c.pile === 'known').length})`}
+            {f === 'all' ? `${t.pile_all} (${cards.length})` : `${pileLabel(f)} (${cards.filter((c) => c.pile === f).length})`}
           </button>
         ))}
       </div>
@@ -296,7 +302,7 @@ export default function Library() {
               ) : c.emoji}
               <span className="absolute bottom-1.5 left-1.5 text-[10px] font-black px-2 py-0.5 rounded-full bg-black/50 text-white">{c.category}</span>
               <span className="absolute bottom-1.5 right-1.5 text-[10px] font-black px-2 py-0.5 rounded-full bg-black/50 text-white">
-                {c.pile === 'new' ? `✨ ${t.pill_new}` : c.pile === 'known' ? `✅ ${t.pile_known}` : `📚 ${t.pile_learning}`}
+                {pileBadge(c.pile)}
               </span>
             </div>
             <div className="p-3">
@@ -313,8 +319,8 @@ export default function Library() {
                 <button onClick={() => (locked ? needFull(t.lib_lock_edit) : openEdit(c))} title={locked ? t.lib_lock_title : t.lib_edit} className="flex-1 inline-flex justify-center items-center gap-1 text-xs font-bold px-2 py-2 rounded-xl border border-slate-200 dark:border-white/10 active:scale-95">
                   {locked ? <Lock size={13} /> : <Pencil size={13} />} {t.lib_edit}
                 </button>
-                <button onClick={() => (locked ? needFull(t.lib_lock_pile) : movePile(c.id, c.pile === 'known' ? 'learning' : 'known'))} title={locked ? t.lib_lock_title : c.pile === 'known' ? `${t.lib_to_known} ${t.pile_learning}` : `${t.lib_to_learning} ${t.pile_known}`} className="flex-1 inline-flex justify-center items-center gap-1 text-xs font-bold px-2 py-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 active:scale-95">
-                  {locked ? <Lock size={13} /> : <RotateCcw size={13} />} {c.pile === 'known' ? t.lib_rever : t.pile_known}
+                <button onClick={() => (locked ? needFull(t.lib_lock_pile) : movePile(c.id, c.pile === 'mastered' ? 'practice' : 'mastered'))} title={locked ? t.lib_lock_title : c.pile === 'mastered' ? `${t.lib_to_known} ${t.pile_practice}` : `${t.lib_to_learning} ${t.pile_mastered}`} className="flex-1 inline-flex justify-center items-center gap-1 text-xs font-bold px-2 py-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 active:scale-95">
+                  {locked ? <Lock size={13} /> : <RotateCcw size={13} />} {c.pile === 'mastered' ? t.lib_rever : t.pile_mastered}
                 </button>
                 <button onClick={() => (locked ? needFull(t.lib_lock_del) : (confirm(`${t.lib_del_confirm} "${c.en}"?`) && removeCard(c.id)))} title={locked ? t.lib_lock_title : t.lib_del} className="p-2 rounded-xl bg-rose-500/10 text-rose-500 active:scale-95">{locked ? <Lock size={15} /> : <Trash2 size={15} />}</button>
               </div>
@@ -360,13 +366,13 @@ export default function Library() {
               </div>
             </div>
             <div className="text-xs font-bold mt-3">{t.lib_color}
-              <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1">Azuis</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1">{t.lib_palette_blue}</p>
               <div className="flex flex-wrap gap-1.5 mt-1">
                 {GRADIENTS.map((g) => (
                   <button key={g} onClick={() => setEditing({ ...editing, gradient: g })} title={g} className={`w-10 h-10 rounded-xl bg-gradient-to-br ${g} ${editing.gradient === g ? 'ring-2 ring-offset-2 ring-carolina' : ''}`} />
                 ))}
               </div>
-              <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1">Clássicas</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1">{t.lib_palette_classic}</p>
               <div className="flex flex-wrap gap-1.5 mt-1">
                 {CLASSIC_GRADIENTS.map((g) => (
                   <button key={g} onClick={() => setEditing({ ...editing, gradient: g })} title={g} className={`w-10 h-10 rounded-xl bg-gradient-to-br ${g} ${editing.gradient === g ? 'ring-2 ring-offset-2 ring-carolina' : ''}`} />
@@ -381,7 +387,7 @@ export default function Library() {
             )}
             {liveDup && !forceDup && (
               <div className="mt-3 px-3 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-xs font-bold text-amber-700 dark:text-amber-300">
-                ⚠️ "{liveDup.en}" {t.lib_dup_warn} ({liveDup.pt} · {liveDup.pile === 'new' ? t.pill_new : liveDup.pile === 'known' ? t.pile_known : t.pile_learning}).
+                ⚠️ "{liveDup.en}" {t.lib_dup_warn} ({liveDup.pt} · {pileBadge(liveDup.pile)}).
                 <button
                   onClick={() => { setQ(liveDup.en); setEditing(null); }}
                   className="ml-2 underline"

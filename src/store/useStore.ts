@@ -4,7 +4,7 @@ import { buildSeedCards } from '../data/seed';
 import { materializeBankEntry, pickDailyWords } from '../data/bank';
 import { findDuplicate, normalizeEN, splitNewVsDuplicates } from '../lib/dedupe';
 import { STORE_KEY, THEME_KEY } from '../lib/migrateLocal';
-import { nextReviewForBox } from '../lib/srs';
+import { nextReviewForBox, boxToPile, normalizePile } from '../lib/srs';
 import { supabase } from '../lib/supabase';
 import type { Lang } from '../lib/i18n';
 import { passwordIssue } from '../lib/password';
@@ -98,6 +98,11 @@ function L(): Lang {
   }
 }
 
+/** Mensagens bilíngues do store (sem importar o dicionário — evita ciclo). */
+function noDbMsg(): string {
+  return L() === 'en' ? 'Supabase not configured.' : 'Supabase não configurado.';
+}
+
 /** Mensagem de erro de nuvem no idioma atual (frases prontas PT/EN). */
 function cloudErr(ptMsg: string, enMsg: string, e: unknown): string {
   const detail = e instanceof Error ? e.message : String(e);
@@ -150,7 +155,7 @@ interface Store {
   cards: Card[];
   theme: 'light' | 'dark';
   tab: Tab;
-  pileFilter: Pile | 'all' | 'due';
+  pileFilter: Pile | 'all';
   xp: number;
   bestStreak: number;
   dayStreak: number;
@@ -167,18 +172,11 @@ interface Store {
   lastAutoAddDate: string;
   /** Teto de palavras do modo demo (editável no admin). */
   demoMax: number;
-  /** Motor de voz: 'proxy' (nuvem Google) ou 'piper' (neural offline). */
-  ttsEngine: string;
-  /** Vozes Piper (voiceId). */
-  ttsVoiceEN: string;
-  ttsVoicePT: string;
-  /** Velocidade 0.5–1.5 (playbackRate). */
-  ttsRate: number;
   /** Idioma da interface (imersão). */
   lang: Lang;
 
   setTab: (t: Tab) => void;
-  setPileFilter: (f: Pile | 'all' | 'due') => void;
+  setPileFilter: (f: Pile | 'all') => void;
   toggleTheme: () => void;
   setNewPerDay: (n: number) => void;
 
@@ -195,10 +193,6 @@ interface Store {
   setAutoNewPerDay: (n: number) => void;
   setAutoAddEnabled: (v: boolean) => void;
   setAutoAddTimes: (v: string[]) => void;
-  setTtsEngine: (v: string) => void;
-  setTtsVoiceEN: (v: string) => void;
-  setTtsVoicePT: (v: string) => void;
-  setTtsRate: (n: number) => void;
   setDemoMax: (n: number) => void;
   setLang: (l: Lang) => void;
   /** Injeta as palavras do dia (demo local ou banco na nuvem). Retorna qtd adicionada. */
@@ -256,7 +250,7 @@ export const useStore = create<Store>()(
       cards: initialCards(),
       theme: 'dark',
       tab: 'study',
-      pileFilter: 'all',
+      pileFilter: 'new',
       xp: 0,
       bestStreak: 0,
       dayStreak: 0,
@@ -268,10 +262,6 @@ export const useStore = create<Store>()(
       autoAddTimes: [...DEFAULT_AUTO_ADD_TIMES],
       lastAutoAddSlots: {},
       lastAutoAddDate: '',
-      ttsEngine: 'proxy',
-      ttsVoiceEN: 'en_US-amy-medium',
-      ttsVoicePT: 'pt_BR-faber-medium',
-      ttsRate: 1,
       demoMax: DEMO_MAX_DEFAULT,
       lang: 'pt',
 
@@ -291,7 +281,8 @@ export const useStore = create<Store>()(
       syncing: false,
       pendingPhotos: {},
 
-      setTab: (tab) => set({ tab }),
+      // Abrir/voltar para Estudar sempre seleciona a 1ª caixa (Novas).
+      setTab: (tab) => set((s) => (tab === 'study' && s.tab !== 'study' ? { tab, pileFilter: 'new' } : { tab })),
       setPileFilter: (pileFilter) => set({ pileFilter }),
       toggleTheme: () =>
         set((s) => {
@@ -307,35 +298,40 @@ export const useStore = create<Store>()(
         if (get().role === 'admin' && supabase) void updateAppSettings({ new_per_day: newPerDay }).catch(() => {});
       },
 
+      // SRS 5 caixas: ✅ avança +1, ❌ volta −1. Em Novas, ❌ mantém lá (só marca vista).
       answer: (id, known) => {
         set((s) => {
           const now = Date.now();
           const key = todayKey();
           const continued = s.lastStudyDate === key;
-          // streak simples: +1 dia se estudou em dia diferente
           const lastDate = s.lastStudyDate;
           const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
           const dayStreak = continued ? s.dayStreak : lastDate === yesterday || lastDate === '' ? s.dayStreak + 1 : 1;
 
           const cards = s.cards.map((c) => {
             if (c.id !== id) return c;
+            const box = Math.max(0, Math.min(4, c.box ?? 0));
             if (known) {
-              const box = Math.min(5, c.box + 1);
-              const pile: Pile = box >= 3 ? 'known' : c.pile === 'new' ? 'learning' : c.pile;
+              const next = Math.min(4, box + 1);
               return {
                 ...c,
-                box,
-                pile,
-                nextReviewAt: nextReviewForBox(box, now),
+                box: next,
+                pile: boxToPile(next),
+                nextReviewAt: nextReviewForBox(next, now),
                 correctStreak: c.correctStreak + 1,
                 seenCount: c.seenCount + 1,
                 lastSeenAt: now,
               };
             }
+            // ❌ em Novas: permanece em Novas, conta como vista (exibe 1/9, 2/8...)
+            if (box === 0) {
+              return { ...c, box: 0, pile: 'new' as Pile, nextReviewAt: now, correctStreak: 0, seenCount: c.seenCount + 1, lastSeenAt: now };
+            }
+            const prev = Math.max(0, box - 1);
             return {
               ...c,
-              box: 0,
-              pile: 'learning' as Pile,
+              box: prev,
+              pile: boxToPile(prev),
               nextReviewAt: now, // volta para fixar: revisa agora
               correctStreak: 0,
               seenCount: c.seenCount + 1,
@@ -357,16 +353,13 @@ export const useStore = create<Store>()(
       },
 
       movePile: (id, pile) => {
+        const safe = normalizePile(String(pile));
+        const map: Record<Pile, number> = { new: 0, check: 1, study: 2, practice: 3, mastered: 4 };
+        const box = map[safe];
         set((s) => ({
           cards: s.cards.map((c) =>
             c.id === id
-              ? {
-                  ...c,
-                  pile,
-                  box: pile === 'known' ? 5 : pile === 'new' ? 0 : 1,
-                  nextReviewAt: pile === 'known' ? nextReviewForBox(5) : Date.now(),
-                  lastSeenAt: Date.now(),
-                }
+              ? { ...c, pile: safe, box, nextReviewAt: nextReviewForBox(box), lastSeenAt: Date.now() }
               : c,
           ),
         }));
@@ -459,24 +452,6 @@ export const useStore = create<Store>()(
         const times = normalizeTimesInput(v);
         set({ autoAddTimes: times });
         if (get().role === 'admin' && supabase) void updateAppSettings({ auto_add_times: times }).catch(() => {});
-      },
-      setTtsEngine: (v) => {
-        const engine = v === 'piper' ? 'piper' : 'proxy';
-        set({ ttsEngine: engine });
-        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_engine: engine }).catch(() => {});
-      },
-      setTtsVoiceEN: (ttsVoiceEN) => {
-        set({ ttsVoiceEN });
-        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_voice_en: ttsVoiceEN }).catch(() => {});
-      },
-      setTtsVoicePT: (ttsVoicePT) => {
-        set({ ttsVoicePT });
-        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_voice_pt: ttsVoicePT }).catch(() => {});
-      },
-      setTtsRate: (n) => {
-        const ttsRate = Math.min(1.5, Math.max(0.5, Number(n) || 1));
-        set({ ttsRate });
-        if (get().role === 'admin' && supabase) void updateAppSettings({ tts_rate: ttsRate }).catch(() => {});
       },
       setDemoMax: (demoMax) => {
         const v = Math.max(1, demoMax);
@@ -741,10 +716,6 @@ export const useStore = create<Store>()(
               autoAddEnabled: gs.auto_add_enabled,
               autoAddTimes: normalizeTimesInput(gs.auto_add_times),
               demoMax: Math.max(1, gs.demo_max),
-              ttsEngine: gs.tts_engine === 'piper' ? 'piper' : 'proxy',
-              ttsVoiceEN: gs.tts_voice_en || 'en_US-amy-medium',
-              ttsVoicePT: gs.tts_voice_pt || 'pt_BR-faber-medium',
-              ttsRate: Math.min(1.5, Math.max(0.5, Number(gs.tts_rate) || 1)),
             });
           }
         } catch { /* offline — mantém cache local */ }
@@ -761,7 +732,7 @@ export const useStore = create<Store>()(
 
       signIn: async (email, password) => {
         if (!supabase) {
-          set({ authError: 'Supabase não configurado.' });
+          set({ authError: noDbMsg() });
           return false;
         }
         set({ authError: null, authNotice: null });
@@ -778,7 +749,7 @@ export const useStore = create<Store>()(
 
       signUp: async (email, password, displayName) => {
         if (!supabase) {
-          set({ authError: 'Supabase não configurado.' });
+          set({ authError: noDbMsg() });
           return false;
         }
         set({ authError: null, authNotice: null });
@@ -841,7 +812,7 @@ export const useStore = create<Store>()(
       },
 
       adminCreateUser: async (email, password, displayName) => {
-        if (!supabase) return { ok: false, msg: 'Supabase não configurado.' };
+        if (!supabase) return { ok: false, msg: noDbMsg() };
         const cleanEmail = email.trim();
         if (!/.+@.+\..+/.test(cleanEmail)) return { ok: false, msg: get().lang === 'en' ? 'Invalid email.' : 'E-mail inválido.' };
         if (passwordIssue(password)) return { ok: false, msg: passwordMsg(get().lang) };
@@ -853,7 +824,12 @@ export const useStore = create<Store>()(
             body: { email: cleanEmail, password, displayName: name },
           });
           if (!error && (data as { ok?: boolean })?.ok !== false) {
-            return { ok: true, msg: `✅ ${cleanEmail} cadastrado! Ele entra com a senha inicial e troca no 1º acesso.` };
+            return {
+              ok: true,
+              msg: get().lang === 'en'
+                ? `✅ ${cleanEmail} registered! They sign in with the initial password and change it on first access.`
+                : `✅ ${cleanEmail} cadastrado! Ele entra com a senha inicial e troca no 1º acesso.`,
+            };
           }
           if (error && !/not found|Failed to fetch|404/i.test(String((error as Error)?.message ?? error))) {
             return { ok: false, msg: friendlyAuthError(String((error as Error)?.message ?? error), get().lang) };
@@ -876,15 +852,22 @@ export const useStore = create<Store>()(
           } catch { /* noop */ }
           return {
             ok: true,
-            msg: `✅ ${cleanEmail} cadastrado! Você saiu da sua conta — entre de novo como ${adminEmail}. Ele troca a senha no 1º acesso.`,
+            msg: get().lang === 'en'
+              ? `✅ ${cleanEmail} registered! You were signed out — sign back in as ${adminEmail}. They change the password on first access.`
+              : `✅ ${cleanEmail} cadastrado! Você saiu da sua conta — entre de novo como ${adminEmail}. Ele troca a senha no 1º acesso.`,
           };
         }
-        return { ok: true, msg: `✅ ${cleanEmail} cadastrado! Ele já pode entrar e trocar a senha.` };
+        return {
+          ok: true,
+          msg: get().lang === 'en'
+            ? `✅ ${cleanEmail} registered! They can sign in and change the password now.`
+            : `✅ ${cleanEmail} cadastrado! Ele já pode entrar e trocar a senha.`,
+        };
       },
 
       manageUser: async (action, userId) => {
-        if (!supabase) return { ok: false, msg: 'Supabase não configurado.' };
-        if (get().role !== 'admin') return { ok: false, msg: 'Acesso restrito.' };
+        if (!supabase) return { ok: false, msg: noDbMsg() };
+        if (get().role !== 'admin') return { ok: false, msg: L() === 'en' ? 'Restricted access.' : 'Acesso restrito.' };
         try {
           const { data, error } = await supabase.functions.invoke<{ ok: boolean; error?: string }>('admin-manage-user', {
             body: { action, userId },
@@ -928,22 +911,40 @@ export const useStore = create<Store>()(
     }),
     {
       name: STORE_KEY,
-      version: 3,
+      version: 4,
       migrate: (persisted: unknown) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         const ob = (p.outbox ?? {}) as Record<string, unknown>;
+        const rawCards = Array.isArray(p.cards) ? (p.cards as Card[]) : [];
+        const cards = rawCards.map((c) => {
+          const pile = normalizePile(String((c as Card).pile ?? 'new'));
+          const map: Record<string, number> = { new: 0, check: 1, study: 2, practice: 3, mastered: 4 };
+          let box = Number((c as Card).box ?? map[pile] ?? 0);
+          if (!Number.isFinite(box)) box = map[pile] ?? 0;
+          // Legado 0..5 → 0..4; piles antigas learning/known ganham box coerente
+          if (box > 4) box = 4;
+          const raw = String((c as Card).pile ?? '');
+          if (raw === 'learning' && box <= 1) box = 3;
+          if (raw === 'known' && box < 4) box = 4;
+          if (raw === 'due') box = 2;
+          return { ...c, pile, box };
+        });
+        const rawFilter = String(p.pileFilter ?? 'new');
+        const pileFilter = rawFilter === 'due' || rawFilter === 'learning' || rawFilter === 'known' || rawFilter === 'all'
+          ? ('new' as const)
+          : (normalizePile(rawFilter) as Pile | 'all');
+        const { ttsEngine: _e, ttsVoiceEN: _en, ttsVoicePT: _pt, ttsRate: _r, ...rest } = p;
+        void _e; void _en; void _pt; void _r;
         return {
-          ...p,
+          ...rest,
+          cards,
+          pileFilter,
           autoAddTimes: Array.isArray(p.autoAddTimes) && (p.autoAddTimes as unknown[]).length > 0
             ? p.autoAddTimes
             : [...DEFAULT_AUTO_ADD_TIMES],
           lastAutoAddSlots: (p.lastAutoAddSlots ?? {}) as Record<string, string>,
           lastAutoAddDate: (p.lastAutoAddDate ?? '') as string,
           pendingPhotos: (p.pendingPhotos ?? {}) as Record<string, string>,
-          ttsEngine: p.ttsEngine === 'piper' ? 'piper' : 'proxy',
-          ttsVoiceEN: (p.ttsVoiceEN as string) || 'en_US-amy-medium',
-          ttsVoicePT: (p.ttsVoicePT as string) || 'pt_BR-faber-medium',
-          ttsRate: Math.min(1.5, Math.max(0.5, Number(p.ttsRate) || 1)),
           outbox: {
             cards: (ob.cards ?? []) as string[],
             deletes: (ob.deletes ?? []) as string[],
@@ -956,6 +957,7 @@ export const useStore = create<Store>()(
       partialize: (s) => ({
         cards: s.cards,
         theme: s.theme,
+        pileFilter: s.pileFilter,
         xp: s.xp,
         bestStreak: s.bestStreak,
         dayStreak: s.dayStreak,
@@ -969,10 +971,6 @@ export const useStore = create<Store>()(
         lastAutoAddDate: s.lastAutoAddDate,
         demoMax: s.demoMax,
         lang: s.lang,
-        ttsEngine: s.ttsEngine,
-        ttsVoiceEN: s.ttsVoiceEN,
-        ttsVoicePT: s.ttsVoicePT,
-        ttsRate: s.ttsRate,
         outbox: s.outbox,
         pendingPhotos: s.pendingPhotos,
       }),
@@ -996,8 +994,8 @@ function enqueueOutbox(patch: Partial<{ cards: string[]; deletes: string[]; meta
       nextRetryAt: 0,
     },
   });
-  // Tenta descarregar em background (se online, sai na hora; se offline, falha e agenda backoff).
-  void useStore.getState().flushOutbox(true).catch(() => {});
+  // Tenta descarregar em background respeitando o backoff (evita retry em loop + spam de aviso).
+  void useStore.getState().flushOutbox().catch(() => {});
 }
 
 /** Sobe um card alterado para a nuvem (somente modo full; silencioso no demo). */
@@ -1083,7 +1081,9 @@ function inviteLocked(count: number): void {
   const max = useStore.getState().demoMax;
   useStore.setState({
     showInvite: true,
-    inviteMsg: `Você atingiu ${count} de ${max} palavras no modo demo 🎓 — solicite seu acesso para continuar com palavras ilimitadas. Seu progresso atual é migrado automaticamente.`,
+    inviteMsg: L() === 'en'
+      ? `You reached ${count} of ${max} words in demo mode 🎓 — request your access to continue with unlimited words. Your current progress migrates automatically.`
+      : `Você atingiu ${count} de ${max} palavras no modo demo 🎓 — solicite seu acesso para continuar com palavras ilimitadas. Seu progresso atual é migrado automaticamente.`,
   });
 }
 

@@ -16,7 +16,7 @@ export default function StatsView() {
   const usedEN = new Set(safeCards.map((c) => normalizeEN(String(c.en ?? ''))));
   const bankLeft = WORD_BANK.filter((e) => !usedEN.has(normalizeEN(e.en))).length;
   const total = safeCards.length;
-  const known = safeCards.filter((c) => c.pile === 'known').length;
+  const known = safeCards.filter((c) => c.pile === 'mastered').length;
   const pct = total ? Math.round((known / total) * 100) : 0;
   const level = Math.floor(xp / 100) + 1;
   const levelPct = xp % 100;
@@ -78,8 +78,8 @@ export default function StatsView() {
             </div>
             <span className="text-xs text-slate-500">{t.stats_backup_hint}</span>
             <p className="text-center text-[11px] text-slate-400 mt-3">
-              Feito com ❤️ por <a href="https://lartecnologia.com.br" target="_blank" rel="noreferrer" className="font-bold underline">Lauro Rafael</a> · LAR Tecnologia ·{' '}
-              <a href="https://ko-fi.com/laurorafael" target="_blank" rel="noreferrer" className="font-bold underline">☕ Apoie o projeto</a>
+              {t.stats_made} <a href="https://lartecnologia.com.br" target="_blank" rel="noreferrer" className="font-bold underline">Lauro Rafael</a> · LAR Tecnologia ·{' '}
+              <a href="https://ko-fi.com/laurorafael" target="_blank" rel="noreferrer" className="font-bold underline">{t.stats_support}</a>
             </p>
           </div>
         </div>

@@ -35,18 +35,42 @@ export default function App() {
 
   useEffect(() => {
     applyStoredTheme();
+    // Ao abrir o app, sempre seleciona a 1ª caixa (Novas).
+    useStore.getState().setPileFilter('new');
     // Tutorial abre de imediato (síncrono) — sem depender da rede/Supabase.
     // ?notour=1 pula (útil para screenshots e testes).
     const skipTour = new URLSearchParams(window.location.search).has('notour');
     if (!skipTour && !wasTutorialSeen()) setShowTutorial(true);
+    let disposed = false;
+    let timer: number | undefined;
+    const pull = async () => {
+      try {
+        const n = await ensureDailyWords();
+        if (!disposed && n > 0) {
+          setDailyAdded(n);
+          window.setTimeout(() => { if (!disposed) setDailyAdded(null); }, 6000);
+        }
+      } catch { /* noop */ }
+    };
     void (async () => {
       await initAuth();
-      const n = await ensureDailyWords();
-      if (n > 0) {
-        setDailyAdded(n);
-        window.setTimeout(() => setDailyAdded(null), 6000);
-      }
+      await pull();
     })();
+    // Tempo real: se um novo ciclo rodar com o app aberto, alimenta sozinho.
+    timer = window.setInterval(() => { void pull(); }, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void pull(); };
+    const onFocus = () => { void pull(); };
+    const onOnline = () => { void pull(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -91,7 +115,7 @@ export default function App() {
           {(cloudNotice || pendingCount > 0) && (
             <div className="max-w-5xl mx-auto px-4 pt-4">
               <div className="px-4 py-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-300 text-sm font-bold animate-pop-in flex items-center justify-between gap-2">
-                <span>{cloudNotice ?? `⏳ ${pendingCount} ${t.app_pending} — tento sozinho ao reconectar.`}</span>
+                <span>{cloudNotice ?? `⏳ ${pendingCount} ${t.app_pending} — ${t.app_pending_hint}`}</span>
                 <span className="flex items-center gap-2 shrink-0">
                   {pendingCount > 0 && (
                     <button
