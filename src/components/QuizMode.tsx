@@ -38,16 +38,43 @@ function makeBlank(card: Card): string | null {
   return ex.replace(re, '_____');
 }
 
-/** Distratoras EN únicas (exclui a certa e repetidas). */
-function pickEnDistractors(all: Card[], card: Card, n: number): string[] {
+/**
+ * Distratoras para "complete a frase": só valem palavras que NÃO caberiam na
+ * frase — i.e., de categoria diferente (water × coffee são ambas Comida, então
+ * coffee nunca é oferecido num blank de water) e que nem aparecem na frase.
+ * Sem 3 candidatas assim, o chamador deve desistir do blank (resposta única
+ * não garantida) e usar o modo clássico EN→PT.
+ */
+function pickBlankDistractors(all: Card[], card: Card, sentence: string, n: number): string[] {
   const out: string[] = [];
   const seen = new Set([norm(card.en)]);
+  const cat = (card.category || '').trim().toLowerCase();
   for (const c of shuffle(all)) {
     if (c.id === card.id) continue;
     const k = norm(c.en);
     if (!k || seen.has(k)) continue;
+    // Mesma categoria = poderia caber na frase (ex.: duas comidas em "I drink ___").
+    const ccat = (c.category || '').trim().toLowerCase();
+    if (cat && ccat && ccat === cat) continue;
+    // Palavra que já está na frase confundiria (ou entregaria a resposta).
+    if (k && new RegExp(`\\b${escapeRegExp(k)}\\b`, 'i').test(sentence)) continue;
     seen.add(k);
     out.push(c.en);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+/** Distratoras PT únicas p/ o modo clássico (exclui a certa e repetidas — sem 2 botões "certos"). */
+function pickPtDistractors(all: Card[], card: Card, n: number): string[] {
+  const out: string[] = [];
+  const seen = new Set([norm(card.pt)]);
+  for (const c of shuffle(all)) {
+    if (c.id === card.id) continue;
+    const k = norm(c.pt);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(c.pt);
     if (out.length >= n) break;
   }
   return out;
@@ -60,14 +87,13 @@ function buildRound(all: Card[]): Question[] {
     .map((card): Question => {
       if (Math.random() < BLANK_RATIO) {
         const blanked = makeBlank(card);
-        const distractors = blanked ? pickEnDistractors(all, card, 3) : [];
+        // Blank só com 3 distratoras que não caberiam na frase — senão vira clássico.
+        const distractors = blanked ? pickBlankDistractors(all, card, card.exampleEN, 3) : [];
         if (blanked && distractors.length >= 3) {
           return { card, kind: 'blank', options: shuffle([card.en, ...distractors]), blanked };
         }
       }
-      const distractors = shuffle(all.filter((c) => c.id !== card.id))
-        .slice(0, 3)
-        .map((c) => c.pt);
+      const distractors = pickPtDistractors(all, card, 3);
       return { card, kind: 'choice', options: shuffle([card.pt, ...distractors]) };
     });
 }

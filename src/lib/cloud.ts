@@ -11,6 +11,10 @@ export interface CardRow {
   ipa: string;
   example_en: string;
   example_pt: string;
+  example_past_en: string;
+  example_past_pt: string;
+  example_future_en: string;
+  example_future_pt: string;
   emoji: string;
   photo_url: string | null;
   gradient: string;
@@ -45,6 +49,10 @@ export function rowToCard(r: CardRow, photoFallback?: string): Card {
     ipa: r.ipa,
     exampleEN: r.example_en,
     examplePT: r.example_pt,
+    examplePastEN: r.example_past_en ?? '',
+    examplePastPT: r.example_past_pt ?? '',
+    exampleFutureEN: r.example_future_en ?? '',
+    exampleFuturePT: r.example_future_pt ?? '',
     emoji: r.emoji,
     photo: photoFallback,
     photoUrl: r.photo_url ?? undefined,
@@ -71,6 +79,10 @@ export function cardToRow(userId: string, c: Card): Omit<CardRow, 'created_at'> 
     ipa: c.ipa,
     example_en: c.exampleEN,
     example_pt: c.examplePT,
+    example_past_en: c.examplePastEN ?? '',
+    example_past_pt: c.examplePastPT ?? '',
+    example_future_en: c.exampleFutureEN ?? '',
+    example_future_pt: c.exampleFuturePT ?? '',
     emoji: c.emoji,
     photo_url: c.photoUrl ?? null,
     gradient: c.gradient,
@@ -139,7 +151,12 @@ export async function upsertCardRow(userId: string, c: Card): Promise<void> {
   if (error) throw error;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** true se o id é uuid válido (único formato que o Postgres aceita na coluna id). */
+export function isUuidId(id: string): boolean {
+  return UUID_RE.test(id);
+}
 
 /** Insere lote filtrando EN já existentes (dedupe em JS — previsível e sem conflito). Retorna qtd inserida. */
 export async function insertCardRows(userId: string, cards: Card[]): Promise<number> {
@@ -232,6 +249,8 @@ const GRADIENTS = [
 export interface BankRow {
   bank_id: string; en: string; pt: string; phonetic_br: string; ipa: string;
   example_en: string; example_pt: string; emoji: string; category: string;
+  example_past_en?: string; example_past_pt?: string;
+  example_future_en?: string; example_future_pt?: string;
 }
 
 /** Converte linha do word_bank em Card novo (id temporário — o banco gera uuid no insert). */
@@ -244,6 +263,10 @@ export function bankRowToCard(row: BankRow, index: number, now = Date.now()): Ca
     ipa: row.ipa,
     exampleEN: row.example_en,
     examplePT: row.example_pt,
+    examplePastEN: row.example_past_en ?? '',
+    examplePastPT: row.example_past_pt ?? '',
+    exampleFutureEN: row.example_future_en ?? '',
+    exampleFuturePT: row.example_future_pt ?? '',
     emoji: row.emoji,
     gradient: GRADIENTS[index % GRADIENTS.length],
     category: row.category,
@@ -339,6 +362,8 @@ export async function generateBankBatch(count: number): Promise<BankRow[]> {
 export interface CompletedFields {
   en: string; pt: string; phonetic_br: string; ipa: string;
   example_en: string; example_pt: string; emoji: string; category: string;
+  example_past_en?: string; example_past_pt?: string;
+  example_future_en?: string; example_future_pt?: string;
 }
 
 /** Completa todos os dados da palavra via IA. Não salva — só devolve os campos. */
@@ -350,4 +375,27 @@ export async function completeWord(text: string): Promise<CompletedFields> {
   if (error) throw error;
   if (!data?.fields?.en || !data?.fields?.pt) throw new Error('empty');
   return data.fields;
+}
+
+export interface CompletedTenses {
+  past_en: string; past_pt: string; future_en: string; future_pt: string;
+}
+
+/**
+ * Gera passado/futuro simples da frase de exemplo existente (cards antigos).
+ * Não salva — devolve os 4 campos para revisão no modal.
+ */
+export async function completeTenses(en: string, pt: string): Promise<CompletedTenses> {
+  const db = mustDb();
+  const { data, error } = await db.functions.invoke<{ tenses: CompletedTenses }>('complete-word', {
+    body: { tensesFor: { en, pt } },
+  });
+  if (error) throw error;
+  if (!data?.tenses?.past_en || !data?.tenses?.future_en) throw new Error('empty');
+  return {
+    past_en: (data.tenses.past_en ?? '').trim(),
+    past_pt: (data.tenses.past_pt ?? '').trim(),
+    future_en: (data.tenses.future_en ?? '').trim(),
+    future_pt: (data.tenses.future_pt ?? '').trim(),
+  };
 }

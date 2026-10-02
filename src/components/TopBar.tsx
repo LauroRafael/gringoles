@@ -1,4 +1,4 @@
-import { BookOpen, Flame, Moon, Sparkles, Sun, Megaphone, CheckCircle2, Package, LogIn, LogOut, Cloud, FlaskConical, CircleHelp } from 'lucide-react';
+import { BookOpen, Flame, Moon, Sparkles, Sun, Megaphone, CheckCircle2, Package, LogIn, Cloud, FlaskConical, CircleHelp, UserRound } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { STRINGS } from '../lib/i18n';
 import type { Pile } from '../types';
@@ -7,7 +7,7 @@ interface PileTab { key: Pile; label: string; icon: React.ReactNode; active: str
 
 export default function TopBar() {
   const { cards, pileFilter, setPileFilter, setTab, theme, toggleTheme, xp, dayStreak,
-    user, role, signOut, setShowAuth, demoMax, lang, setLang, setShowTutorial, displayName } = useStore();
+    user, role, setShowAuth, demoMax, lang, setLang, setShowTutorial, displayName, setShowProfile } = useStore();
   const t = STRINGS[lang];
   const PILES: PileTab[] = [
     { key: 'new', label: t.pile_new, icon: <Sparkles size={16} />, active: 'bg-sky-500/80 border-sky-400/60 shadow-sky-500/25', activeSoft: 'bg-sky-500/80 border-sky-400/60' },
@@ -82,11 +82,11 @@ export default function TopBar() {
                 </button>
               ) : (
                 <button
-                  onClick={() => { if (confirm(`${t.app_logout_ask} ${user.email}? ${t.app_logout_confirm}`)) void signOut(); }}
-                  title={`${user.email} — ${t.top_logout_title}`}
-                  className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-2 rounded-full border border-slate-200 dark:border-white/10 text-[11px] sm:text-xs font-black active:scale-95 max-w-28 sm:max-w-32 truncate"
+                  onClick={() => setShowProfile(true)}
+                  title={`${user.email} — ${t.prof_title}`}
+                  className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-2 rounded-full border border-slate-200 dark:border-white/10 text-[11px] sm:text-xs font-black active:scale-95 max-w-28 sm:max-w-32 truncate hover:bg-slate-100 dark:hover:bg-white/10"
                 >
-                  <LogOut size={13} /> <span className="truncate max-w-16">{user.email.split('@')[0]}</span>
+                  <UserRound size={13} /> <span className="truncate max-w-16">{displayName || user.email.split('@')[0]}</span>
                 </button>
               )}
             </div>

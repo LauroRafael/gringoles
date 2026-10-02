@@ -32,6 +32,10 @@ interface CompletedWord {
   ipa: string;
   example_en: string;
   example_pt: string;
+  example_past_en: string;
+  example_past_pt: string;
+  example_future_en: string;
+  example_future_pt: string;
   emoji: string;
   category: string;
 }
@@ -85,22 +89,78 @@ Deno.serve(async (req) => {
   if (authError || !user) return json({ error: 'unauthorized' }, 401);
 
   let text = '';
+  let tensesFor: { en: string; pt: string } | null = null;
   try {
     const body = await req.json();
     text = String(body?.text ?? '').trim().slice(0, 60);
+    const tf = body?.tensesFor;
+    if (tf && typeof tf?.en === 'string' && tf.en.trim()) {
+      tensesFor = { en: tf.en.trim().slice(0, 200), pt: String(tf?.pt ?? '').trim().slice(0, 200) };
+    }
   } catch { /* corpo vazio/inválido */ }
+
+  // Modo 2 (cards existentes): só conjuga a frase nos tempos passado/futuro.
+  if (tensesFor) {
+    const tenseSystem = [
+      'Você é um professor de inglês para brasileiros.',
+      'Receba uma frase de exemplo em inglês (com a tradução em português) e reescreva-a no PASSADO simples e no FUTURO simples (com "will"), mantendo o mesmo vocabulário e sentido.',
+      'Responda SEMPRE e APENAS com JSON no formato {"tenses":{"past_en":"","past_pt":"","future_en":"","future_pt":""}}.',
+      'past_en/future_en = a frase em inglês no passado/futuro; past_pt/future_pt = a tradução exata para o português.',
+    ].join(' ');
+    try {
+      const res = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${GROQ_KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: await pickModel(),
+          temperature: 0.2,
+          max_tokens: 400,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: tenseSystem },
+            { role: 'user', content: JSON.stringify({ en: tensesFor.en, pt: tensesFor.pt }) },
+          ],
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return json({ error: 'groq failed', status: res.status, detail: detail.slice(0, 200) }, 502);
+      }
+      const data = await res.json();
+      const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
+      const tt = parsed.tenses ?? {};
+      if (typeof tt?.past_en !== 'string' || !tt.past_en.trim() || typeof tt?.future_en !== 'string' || !tt.future_en.trim()) {
+        return json({ error: 'empty result' }, 502);
+      }
+      return json({
+        tenses: {
+          past_en: tt.past_en.trim(),
+          past_pt: (tt.past_pt ?? '').trim(),
+          future_en: tt.future_en.trim(),
+          future_pt: (tt.future_pt ?? '').trim(),
+        },
+      });
+    } catch {
+      return json({ error: 'groq request failed' }, 502);
+    }
+  }
+
   if (!text) return json({ error: 'empty text' }, 400);
 
   const system = [
     'Você completa dados de flashcards de inglês para brasileiros (app Gringolês).',
     'A entrada pode estar em INGLÊS ou PORTUGUÊS (palavra ou expressão curta). Detecte o idioma.',
-    'Responda SEMPRE e APENAS com JSON no formato {"word":{"en":"","pt":"","phonetic_br":"","ipa":"","example_en":"","example_pt":"","emoji":"","category":""}}.',
+    'Responda SEMPRE e APENAS com JSON no formato {"word":{"en":"","pt":"","phonetic_br":"","ipa":"","example_en":"","example_pt":"","example_past_en":"","example_past_pt":"","example_future_en":"","example_future_pt":"","emoji":"","category":""}}.',
     'Se a entrada for em português, traduza para o inglês natural mais comum e complete o resto.',
     'Se for em inglês, traduza para o português e complete o resto.',
     'phonetic_br = como soa em português, bem simples (ex.: "Water" → "uóra", "Doctor" → "dóctor").',
     'ipa = transcrição IPA completa entre barras (ex.: "/ˈdɒktər/").',
-    'example_en = frase curta e do dia a dia usando a palavra em inglês; example_pt = tradução exata dessa frase.',
-    'emoji = 1 emoji que represente a palavra. category = tema curto com inicial maiúscula (ex.: Comida, Viagem, Verbos, Phrasal Verbs).',
+    'example_en = frase curta e do dia a dia usando a palavra em inglês (PRESENTE simples); example_pt = tradução exata dessa frase.',
+    'example_past_en/example_future_en = A MESMA frase no passado simples / futuro simples com "will"; example_past_pt/example_future_pt = traduções exatas.',
+    'emoji = 1 emoji que represente a palavra.',
+    'category = classifique em EXATAMENTE um destes nomes: Essenciais, Casa, Comida, Viagem, Verbos, Rotina, Pessoas, Tech, Adjetivos, Natureza, Corpo, Roupas, Phrasal Verbs, Conjunções, Preposições, Advérbios, Cores, Números, Animais, Profissões, Emoções, Saúde, Escola, Trabalho, Esportes.',
+    'Regras de classificação: conectivos (and, but, because, so, although) → Conjunções; localização/tempo (in, on, at, under, behind) → Preposições; modo/frequência (always, never, really, quickly) → Advérbios; cores → Cores; números/ordinais → Números; bichos (dog, cat, bird) → Animais; cargos (teacher, driver, engineer) → Profissões; sentimentos (sad, angry, excited) → Emoções; corpo/doença/remédio → Saúde; material escolar/aula → Escola; escritório/salário/reunião → Trabalho; esporte/jogo/time → Esportes; verbo frasal com partícula (give up, look after) → Phrasal Verbs.',
   ].join(' ');
 
   let w: CompletedWord;
@@ -135,6 +195,27 @@ Deno.serve(async (req) => {
     return json({ error: 'empty result' }, 502);
   }
 
+  const stripCat = (s: string) =>
+    s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normCat = (s: string): string => {
+    const key = stripCat(s);
+    const aliases: Record<string, string> = {
+      'conjuncoes': 'Conjunções', 'conjunctions': 'Conjunções', 'conjunction': 'Conjunções',
+      'preposicoes': 'Preposições', 'prepositions': 'Preposições', 'preposition': 'Preposições',
+      'adverbios': 'Advérbios', 'adverbs': 'Advérbios', 'adverb': 'Advérbios',
+      'cores': 'Cores', 'colors': 'Cores', 'colours': 'Cores', 'color': 'Cores',
+      'numeros': 'Números', 'numbers': 'Números',
+      'animais': 'Animais', 'animals': 'Animais',
+      'profissoes': 'Profissões', 'professions': 'Profissões', 'jobs': 'Profissões',
+      'emocoes': 'Emoções', 'emotions': 'Emoções', 'feelings': 'Emoções',
+      'saude': 'Saúde', 'health': 'Saúde',
+      'escola': 'Escola', 'school': 'Escola', 'education': 'Escola',
+      'trabalho': 'Trabalho', 'work': 'Trabalho', 'business': 'Trabalho', 'office': 'Trabalho',
+      'esportes': 'Esportes', 'sports': 'Esportes', 'sport': 'Esportes',
+    };
+    return aliases[key] ?? (s.trim() ? s.trim().charAt(0).toUpperCase() + s.trim().slice(1) : 'Minhas');
+  };
+
   const fields: CompletedWord = {
     en: w.en.trim(),
     pt: w.pt.trim(),
@@ -142,8 +223,12 @@ Deno.serve(async (req) => {
     ipa: (w.ipa ?? '').trim(),
     example_en: (w.example_en ?? '').trim(),
     example_pt: (w.example_pt ?? '').trim(),
+    example_past_en: (w.example_past_en ?? '').trim(),
+    example_past_pt: (w.example_past_pt ?? '').trim(),
+    example_future_en: (w.example_future_en ?? '').trim(),
+    example_future_pt: (w.example_future_pt ?? '').trim(),
     emoji: (w.emoji ?? '📚').trim() || '📚',
-    category: (w.category ?? 'Minhas').trim() || 'Minhas',
+    category: normCat(w.category ?? 'Minhas'),
   };
   fields.ipa = await refineIpa(fields.en, fields.ipa);
 

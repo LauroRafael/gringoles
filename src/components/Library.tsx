@@ -1,11 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
-import { Pencil, Plus, Search, Trash2, Upload, Download, Volume2, RotateCcw, X, Lock, Crown } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pencil, Plus, Search, Trash2, Upload, Download, Volume2, RotateCcw, X, Lock, Crown, ArrowUp } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { playEN } from '../lib/speech';
 import { findDuplicate } from '../lib/dedupe';
 import { compressImage } from '../lib/image';
-import { completeWord } from '../lib/cloud';
-import { uploadPhoto } from '../lib/cloud';
+import { completeWord, completeTenses, uploadPhoto } from '../lib/cloud';
 import { STRINGS } from '../lib/i18n';
 import EmojiPicker from './EmojiPicker';
 import type { Card } from '../types';
@@ -33,11 +32,43 @@ const CLASSIC_GRADIENTS = [
 
 const emptyForm = {
   en: '', pt: '', phoneticBR: '', ipa: '', exampleEN: '', examplePT: '',
+  examplePastEN: '', examplePastPT: '', exampleFutureEN: '', exampleFuturePT: '',
   emoji: '📚', photo: '', photoUrl: '', gradient: GRADIENTS[0], category: 'Minhas',
 };
 
 /** Primeira letra sempre maiúscula (visual + valor). */
 const capFirst = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+/** Paginação desktop: itens por página. Mobile usa infinite scroll (lotes). */
+const PAGE_SIZE = 24;
+const MOBILE_STEP = 12;
+
+/** true em telas < sm (mesmo breakpoint do Tailwind). */
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia !== 'undefined'
+      ? window.matchMedia('(max-width: 639px)').matches
+      : true,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 639px)');
+    const onChange = () => setMobile(mq.matches);
+    try {
+      mq.addEventListener('change', onChange);
+    } catch {
+      mq.addListener(onChange);
+    }
+    return () => {
+      try {
+        mq.removeEventListener('change', onChange);
+      } catch {
+        mq.removeListener(onChange);
+      }
+    };
+  }, []);
+  return mobile;
+}
 
 export default function Library() {
   const { cards, user, addCard, updateCard, removeCard, movePile, importCards, setShowInvite, lang, queuePhoto, setCloudNotice } = useStore();
@@ -77,8 +108,90 @@ export default function Library() {
     });
   }, [cards, q, filter]);
 
+  // ---- Paginação (desktop) + infinite scroll (mobile) ----
+  const [page, setPage] = useState(1);
+  const [grown, setGrown] = useState(MOBILE_STEP);
+  const [showFab, setShowFab] = useState(false);
+  const listTopRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Busca/filtro/acervo mudou → volta ao início.
+  useEffect(() => {
+    setPage(1);
+    setGrown(MOBILE_STEP);
+  }, [q, filter, cards.length]);
+
+  const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = list.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const visible = list.slice(0, grown);
+  const isMobile = useIsMobile();
+  const shown = isMobile ? visible : paged;
+
+  // Mobile: ao encostar no fim, carrega mais um lote (infinite scroll).
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || grown >= list.length) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setGrown((g) => Math.min(g + MOBILE_STEP, list.length));
+        }
+      },
+      { rootMargin: '600px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [grown, list.length]);
+
+  // FAB voltar ao topo: aparece só depois de rolar (mobile).
+  useEffect(() => {
+    const onScroll = () => setShowFab(window.scrollY > 500);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const backToTop = () => {
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+  };
+
+  const goPage = (p: number) => {
+    setPage(Math.max(1, Math.min(totalPages, p)));
+    try {
+      listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch { /* noop */ }
+  };
+
+  /** Janela de páginas: 1 … p-1 p p+1 … N */
+  const pageNums = useMemo(() => {
+    const out: (number | '…')[] = [];
+    for (let p = 1; p <= totalPages; p++) {
+      if (p === 1 || p === totalPages || Math.abs(p - safePage) <= 1) out.push(p);
+      else if (out[out.length - 1] !== '…') out.push('…');
+    }
+    return out;
+  }, [totalPages, safePage]);
+
   const openNew = () => { setForceDup(false); setEditing({ ...emptyForm }); };
-  const openEdit = (c: Card) => { setForceDup(false); setEditing({ ...emptyForm, ...c, photo: c.photo ?? '', photoUrl: c.photoUrl ?? '' }); };
+  const openEdit = (c: Card) => {
+    setForceDup(false);
+    setEditing({
+      ...emptyForm,
+      ...c,
+      photo: c.photo ?? '',
+      photoUrl: c.photoUrl ?? '',
+      examplePastEN: c.examplePastEN ?? '',
+      examplePastPT: c.examplePastPT ?? '',
+      exampleFutureEN: c.exampleFutureEN ?? '',
+      exampleFuturePT: c.exampleFuturePT ?? '',
+    });
+  };
 
   const saveForm = () => {
     if (!editing || !editing.en.trim() || !editing.pt.trim()) return;
@@ -106,6 +219,42 @@ export default function Library() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState<string | null>(null);
+  const [tenseBusy, setTenseBusy] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+
+  /** Cards que só têm presente (candidatos ao bulk). */
+  const missingTenses = useMemo(
+    () => cards.filter((c) => c.exampleEN.trim() && (!c.examplePastEN?.trim() || !c.exampleFutureEN?.trim())),
+    [cards],
+  );
+
+  /** Preenche passado/futuro de até 20 cards sem tempos (respeita rate-limit da IA). */
+  const bulkTenses = async () => {
+    if (bulkBusy || locked) return;
+    if (locked) { needFull(t.lib_tenses_bulk); return; }
+    const targets = missingTenses.slice(0, 20);
+    if (targets.length === 0) { flash(t.lib_tenses_bulk_none); return; }
+    setBulkBusy(true);
+    setBulkMsg(null);
+    let done = 0;
+    for (const c of targets) {
+      try {
+        const tt = await completeTenses(c.exampleEN, c.examplePT);
+        updateCard(c.id, {
+          examplePastEN: tt.past_en || c.examplePastEN,
+          examplePastPT: tt.past_pt || c.examplePastPT,
+          exampleFutureEN: tt.future_en || c.exampleFutureEN,
+          exampleFuturePT: tt.future_pt || c.exampleFuturePT,
+        });
+        done += 1;
+        setBulkMsg(`${done}/${targets.length}…`);
+      } catch { /* pula — próximo */ }
+    }
+    setBulkBusy(false);
+    setBulkMsg(null);
+    flash(done > 0 ? `✅ ${done} ${t.lib_tenses_bulk_done}` : t.lib_ai_nothing);
+  };
 
   const fetchAI = async () => {
     if (!editing || aiBusy) return;
@@ -123,6 +272,11 @@ export default function Library() {
       if (f.ipa && !editing.ipa.trim()) { patch.ipa = f.ipa; filled.push(t.lib_f_ipa); }
       if (f.example_en && !editing.exampleEN.trim()) { patch.exampleEN = f.example_en; filled.push(t.lib_f_exen); }
       if (f.example_pt && !editing.examplePT.trim()) { patch.examplePT = f.example_pt; filled.push(t.lib_f_expt); }
+      if (f.example_past_en && !editing.examplePastEN.trim()) patch.examplePastEN = f.example_past_en;
+      if (f.example_past_pt && !editing.examplePastPT.trim()) patch.examplePastPT = f.example_past_pt;
+      if (f.example_future_en && !editing.exampleFutureEN.trim()) patch.exampleFutureEN = f.example_future_en;
+      if (f.example_future_pt && !editing.exampleFuturePT.trim()) patch.exampleFuturePT = f.example_future_pt;
+      if ((patch.examplePastEN || patch.exampleFutureEN) && !filled.includes(t.lib_tenses)) filled.push(t.lib_tenses);
       if (f.emoji && (!editing.emoji.trim() || editing.emoji === '📚')) { patch.emoji = f.emoji; filled.push('Emoji'); }
       if (f.category && (!editing.category.trim() || editing.category === 'Minhas')) { patch.category = f.category; filled.push(t.lib_f_cat); }
       if (filled.length > 0) {
@@ -135,6 +289,34 @@ export default function Library() {
       setAiMsg(t.lib_ai_nothing);
     } finally {
       setAiBusy(false);
+    }
+  };
+
+  /** Gera passado/futuro simples a partir da frase presente (cards antigos). */
+  const genTenses = async () => {
+    if (!editing || tenseBusy) return;
+    const en = editing.exampleEN.trim();
+    const pt = editing.examplePT.trim();
+    if (!en) {
+      flash(t.lib_tenses_need_en);
+      return;
+    }
+    setTenseBusy(true);
+    setAiMsg(null);
+    try {
+      const tt = await completeTenses(en, pt);
+      setEditing({
+        ...editing,
+        examplePastEN: tt.past_en || editing.examplePastEN,
+        examplePastPT: tt.past_pt || editing.examplePastPT,
+        exampleFutureEN: tt.future_en || editing.exampleFutureEN,
+        exampleFuturePT: tt.future_pt || editing.exampleFuturePT,
+      });
+      setAiMsg(`✅ ${t.lib_tenses_done}`);
+    } catch {
+      setAiMsg(t.lib_ai_nothing);
+    } finally {
+      setTenseBusy(false);
     }
   };
 
@@ -288,10 +470,21 @@ export default function Library() {
             {f === 'all' ? `${t.pile_all} (${cards.length})` : `${pileLabel(f)} (${cards.filter((c) => c.pile === f).length})`}
           </button>
         ))}
+        <span className="flex-1" />
+        {missingTenses.length > 0 && (
+          <button
+            onClick={() => void bulkTenses()}
+            disabled={bulkBusy}
+            title={t.lib_tenses_bulk_title}
+            className="px-3 py-1.5 rounded-full bg-gradient-to-r from-sapphire to-carolina text-white text-xs font-black active:scale-95 disabled:opacity-50"
+          >
+            {bulkBusy ? (bulkMsg ?? `⏱…`) : `⏱ ${t.lib_tenses_gen} (${missingTenses.length})`}
+          </button>
+        )}
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {list.map((c) => (
+      <div ref={listTopRef} className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 scroll-mt-32">
+        {shown.map((c) => (
           <div key={c.id} className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 overflow-hidden animate-pop-in">
             <div className={`h-24 bg-gradient-to-br ${c.gradient} flex items-center justify-center text-5xl relative overflow-hidden`}>
               {(c.photoUrl || c.photo) ? (
@@ -310,6 +503,15 @@ export default function Library() {
                 <div>
                   <p className="font-black text-lg leading-tight">{c.en}</p>
                   <p className="text-sm text-slate-500 dark:text-slate-300">{c.pt} · "{c.phoneticBR}"</p>
+                  <p className={`mt-1 inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${
+                    c.examplePastEN?.trim() && c.exampleFutureEN?.trim()
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
+                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                  }`}>
+                    ⏱ {c.examplePastEN?.trim() && c.exampleFutureEN?.trim()
+                      ? `${t.lib_tense_present}/${t.lib_tense_past}/${t.lib_tense_future} ✓`
+                      : t.lib_tenses_missing}
+                  </p>
                 </div>
                 <button onClick={() => playEN(c.en)} className="p-2 rounded-xl bg-azure dark:bg-carolina/15 text-sapphire dark:text-carolina active:scale-90" title={t.lib_listen}>
                   <Volume2 size={16} />
@@ -330,6 +532,82 @@ export default function Library() {
       </div>
       {list.length === 0 && <p className="text-center text-slate-500 py-10">{t.lib_empty}</p>}
 
+      {/* Desktop: paginação numerada */}
+      {totalPages > 1 && (
+        <div className="hidden sm:flex items-center justify-center gap-1.5 mt-5">
+          <button
+            onClick={() => goPage(safePage - 1)}
+            disabled={safePage <= 1}
+            aria-label={t.lib_prev}
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-black disabled:opacity-40 active:scale-95"
+          >
+            ‹
+          </button>
+          {pageNums.map((p, i) =>
+            p === '…' ? (
+              <span key={`gap-${i}`} className="px-1 text-slate-400">…</span>
+            ) : (
+              <button
+                key={p}
+                onClick={() => goPage(p)}
+                aria-label={`${t.lib_page} ${p}`}
+                aria-current={p === safePage ? 'page' : undefined}
+                className={`min-w-9 px-2.5 py-2 rounded-xl text-sm font-black active:scale-95 ${p === safePage
+                  ? 'bg-sapphire text-white'
+                  : 'border border-slate-200 dark:border-white/10'}`}
+              >
+                {p}
+              </button>
+            ),
+          )}
+          <button
+            onClick={() => goPage(safePage + 1)}
+            disabled={safePage >= totalPages}
+            aria-label={t.lib_next}
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-black disabled:opacity-40 active:scale-95"
+          >
+            ›
+          </button>
+        </div>
+      )}
+      {list.length > 0 && (
+        <p className="hidden sm:block text-center text-xs text-slate-400 mt-2">
+          {t.lib_showing} {(safePage - 1) * PAGE_SIZE + shown.length} {t.lib_of} {list.length}
+        </p>
+      )}
+
+      {/* Mobile: infinite scroll — carrega mais ao chegar no fim */}
+      {list.length > 0 && (
+        <div className="sm:hidden mt-4 text-center">
+          <p className="text-xs text-slate-400 font-bold">
+            {t.lib_showing} {shown.length} {t.lib_of} {list.length}
+          </p>
+          <div ref={sentinelRef} aria-hidden className="h-1" />
+          {grown < list.length ? (
+            <button
+              onClick={() => setGrown((g) => Math.min(g + MOBILE_STEP, list.length))}
+              className="mt-2 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-white/10 text-xs font-black active:scale-95"
+            >
+              {t.lib_load_more} ↓
+            </button>
+          ) : (
+            list.length > MOBILE_STEP && <p className="mt-2 text-[11px] text-slate-400">✓ {t.lib_all_shown}</p>
+          )}
+        </div>
+      )}
+
+      {/* Mobile: FAB flutuante para voltar ao topo */}
+      {showFab && (
+        <button
+          onClick={backToTop}
+          aria-label={t.lib_back_top}
+          title={t.lib_back_top}
+          className="sm:hidden fixed bottom-24 right-4 z-40 w-12 h-12 rounded-full bg-gradient-to-br from-sapphire to-carolina text-white shadow-xl shadow-sapphire/30 flex items-center justify-center active:scale-90 animate-pop-in"
+        >
+          <ArrowUp size={20} />
+        </button>
+      )}
+
       {/* Modal de edição */}
       {editing && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setEditing(null)}>
@@ -349,8 +627,28 @@ export default function Library() {
               </div>
               <label className="text-xs font-bold">{t.lib_f_say}<input value={editing.phoneticBR} onChange={(e) => setEditing({ ...editing, phoneticBR: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="uóra" /></label>
               <label className="text-xs font-bold">{t.lib_f_ipa}<input value={editing.ipa} onChange={(e) => setEditing({ ...editing, ipa: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="/ˈwɔːtər/" /></label>
-              <label className="text-xs font-bold col-span-2">{t.lib_f_exen}<input value={editing.exampleEN} onChange={(e) => setEditing({ ...editing, exampleEN: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Can I have some water?" /></label>
+              <label className="text-xs font-bold col-span-2">{t.lib_f_exen} <span className="text-[10px] font-bold text-slate-400">· {t.lib_tense_present}</span><input value={editing.exampleEN} onChange={(e) => setEditing({ ...editing, exampleEN: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Can I have some water?" /></label>
               <label className="text-xs font-bold col-span-2">{t.lib_f_expt}<input value={editing.examplePT} onChange={(e) => setEditing({ ...editing, examplePT: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Posso beber água?" /></label>
+              <div className="col-span-2 rounded-2xl border border-slate-200 dark:border-white/10 p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-black">⏱ {t.lib_tenses}</span>
+                  <button
+                    onClick={() => void genTenses()}
+                    disabled={tenseBusy || !editing.exampleEN.trim()}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-sapphire to-carolina text-white text-[11px] font-black active:scale-95 disabled:opacity-40"
+                    title={t.lib_tenses_gen_title}
+                  >
+                    {tenseBusy ? t.lib_ai_busy : `✨ ${t.lib_tenses_gen}`}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">{t.lib_tenses_hint}</p>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{t.lib_tense_past} · EN<input value={editing.examplePastEN} onChange={(e) => setEditing({ ...editing, examplePastEN: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="I had some water." /></label>
+                  <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{t.lib_tense_past} · PT<input value={editing.examplePastPT} onChange={(e) => setEditing({ ...editing, examplePastPT: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Eu bebi um pouco de água." /></label>
+                  <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{t.lib_tense_future} · EN<input value={editing.exampleFutureEN} onChange={(e) => setEditing({ ...editing, exampleFutureEN: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="I will have some water." /></label>
+                  <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{t.lib_tense_future} · PT<input value={editing.exampleFuturePT} onChange={(e) => setEditing({ ...editing, exampleFuturePT: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" placeholder="Eu vou beber um pouco de água." /></label>
+                </div>
+              </div>
               <label className="text-xs font-bold">{t.lib_f_cat}<input value={editing.category} onChange={(e) => setEditing({ ...editing, category: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" /></label>
               <div className="text-xs font-bold">{t.lib_f_photo}
                 <div className="mt-1 flex gap-2">

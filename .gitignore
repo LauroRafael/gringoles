@@ -19,6 +19,7 @@ coverage
 notes.txt
 *.pem
 *.key
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*

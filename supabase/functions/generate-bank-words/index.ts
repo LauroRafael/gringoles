@@ -34,6 +34,10 @@ interface GenWord {
   ipa: string;
   example_en: string;
   example_pt: string;
+  example_past_en: string;
+  example_past_pt: string;
+  example_future_en: string;
+  example_future_pt: string;
   emoji: string;
   category: string;
 }
@@ -105,20 +109,42 @@ Deno.serve(async (req) => {
     ...cardRows.map((r) => norm(r.en)),
   ]);
   const categories = [...new Set(bankRows.map((r) => r.category).filter(Boolean))];
+
+  /** Taxonomia curada do Gringolês (nomes exatos, em PT — exceto Phrasal Verbs e Tech). */
+  const CURATED_CATEGORIES = [
+    'Essenciais', 'Casa', 'Comida', 'Viagem', 'Verbos', 'Rotina', 'Pessoas',
+    'Tech', 'Adjetivos', 'Natureza', 'Corpo', 'Roupas', 'Phrasal Verbs',
+    'Conjunções', 'Preposições', 'Advérbios', 'Cores', 'Números', 'Animais',
+    'Profissões', 'Emoções', 'Saúde', 'Escola', 'Trabalho', 'Esportes',
+  ];
+  /** Conta quantas palavras cada categoria já tem no banco. */
+  const countByCat = new Map<string, number>();
+  for (const r of bankRows) {
+    if (!r.category) continue;
+    countByCat.set(r.category, (countByCat.get(r.category) ?? 0) + 1);
+  }
+  /** Prioriza categorias curadas ainda ausentes ou raras (<8 palavras) para enriquecer o vocabulário. */
+  const priorityCats = CURATED_CATEGORIES.filter((c) => (countByCat.get(c) ?? 0) < 8);
   const excludeSample = [...exclude].slice(0, 400);
 
   const system = [
     'Você gera flashcards de inglês para brasileiros (app Gringolês).',
-    'Responda SEMPRE e APENAS com JSON no formato {"words":[{"en":"","pt":"","phonetic_br":"","ipa":"","example_en":"","example_pt":"","emoji":"","category":""}]}.',
+    'Responda SEMPRE e APENAS com JSON no formato {"words":[{"en":"","pt":"","phonetic_br":"","ipa":"","example_en":"","example_pt":"","example_past_en":"","example_past_pt":"","example_future_en":"","example_future_pt":"","emoji":"","category":""}]}.',
     'phonetic_br = como soa em português, bem simples (ex.: "Water" → "uóra", "Doctor" → "dóctor").',
     'ipa = transcrição IPA completa entre barras (ex.: "/ˈdɒktər/").',
-    'example_en = frase curta e do dia a dia em inglês; example_pt = tradução exata dessa frase.',
-    'emoji = 1 emoji que represente a palavra. category = tema curto com inicial maiúscula.',
+    'example_en = frase curta e do dia a dia em inglês (PRESENTE simples); example_pt = tradução exata dessa frase.',
+    'example_past_en/example_future_en = A MESMA frase no passado simples / futuro simples com "will"; example_past_pt/example_future_pt = traduções exatas.',
+    'emoji = 1 emoji que represente a palavra.',
+    `category = use EXATAMENTE um destes nomes: ${CURATED_CATEGORIES.join(', ')}. Não invente outros nomes.`,
+    'Guia rápido: Conjunções (and, but, because, so, or, if, although); Preposições (in, on, at, under, behind, between); Advérbios (always, never, really, quickly); Cores (red, blue, yellow); Números (one, two, first, half); Animais (dog, cat, bird, fish); Profissões (teacher, driver, engineer); Emoções (happy, sad, angry, excited); Saúde (pain, fever, medicine); Escola (book, pen, class, homework); Trabalho (office, meeting, boss, salary); Esportes (soccer, team, game, swim).',
     'Palavras úteis e comuns (nível básico a intermediário), sem repetir NENHUMA palavra da lista de exclusão.',
   ].join(' ');
   const userMsg = [
     `Gere exatamente ${count} palavras novas.`,
-    `Categorias já existentes (use a maioria, mas pode criar 1 ou 2 novas coerentes): ${categories.join(', ')}.`,
+    `Categorias já existentes no banco: ${categories.join(', ') || '(vazio)'}.`,
+    priorityCats.length > 0
+      ? `PRIORIDADE: distribua as palavras entre várias categorias e inclua pelo menos ${Math.min(count, 6)} palavras destas categorias ainda raras/ausentes: ${priorityCats.join(', ')}.`
+      : `Distribua as ${count} palavras entre várias categorias curadas, variando os temas (não concentre tudo numa só).`,
     `Palavras proibidas (já existentes): ${excludeSample.join(', ')}.`,
   ].join('\n');
 
@@ -133,7 +159,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model,
         temperature: 0.5,
-        max_tokens: 6000,
+        max_tokens: 9000,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
@@ -153,6 +179,35 @@ Deno.serve(async (req) => {
     return json({ error: 'groq request failed' }, 502);
   }
 
+  const strip = (s: string) =>
+    s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normCat = (s: string): string => {
+    const key = strip(s);
+    const aliases: Record<string, string> = {
+      'conjuncoes': 'Conjunções', 'conjunctions': 'Conjunções', 'conjunction': 'Conjunções',
+      'preposicoes': 'Preposições', 'prepositions': 'Preposições', 'preposition': 'Preposições',
+      'adverbios': 'Advérbios', 'adverbs': 'Advérbios', 'adverb': 'Advérbios',
+      'cores': 'Cores', 'colors': 'Cores', 'colours': 'Cores', 'color': 'Cores',
+      'numeros': 'Números', 'numbers': 'Números',
+      'animais': 'Animais', 'animals': 'Animais',
+      'profissoes': 'Profissões', 'professions': 'Profissões', 'jobs': 'Profissões',
+      'emocoes': 'Emoções', 'emotions': 'Emoções', 'feelings': 'Emoções',
+      'saude': 'Saúde', 'health': 'Saúde',
+      'escola': 'Escola', 'school': 'Escola', 'education': 'Escola',
+      'trabalho': 'Trabalho', 'work': 'Trabalho', 'business': 'Trabalho', 'office': 'Trabalho',
+      'esportes': 'Esportes', 'sports': 'Esportes', 'sport': 'Esportes',
+      'essenciais': 'Essenciais', 'casa': 'Casa', 'house': 'Casa', 'comida': 'Comida', 'food': 'Comida',
+      'viagem': 'Viagem', 'travel': 'Viagem', 'verbos': 'Verbos', 'verbs': 'Verbos',
+      'rotina': 'Rotina', 'routine': 'Rotina', 'pessoas': 'Pessoas', 'people': 'Pessoas',
+      'tech': 'Tech', 'tecnologia': 'Tech', 'adjetivos': 'Adjetivos', 'adjectives': 'Adjetivos',
+      'natureza': 'Natureza', 'nature': 'Natureza', 'corpo': 'Corpo', 'body': 'Corpo',
+      'roupas': 'Roupas', 'clothes': 'Roupas', 'phrasal verbs': 'Phrasal Verbs',
+    };
+    if (aliases[key]) return aliases[key];
+    const curated = CURATED_CATEGORIES.find((c) => strip(c) === key);
+    return curated ?? (s.trim() ? s.trim().charAt(0).toUpperCase() + s.trim().slice(1) : 'Banco');
+  };
+
   const seen = new Set<string>(exclude);
   const clean = words
     .filter((w) => {
@@ -169,8 +224,12 @@ Deno.serve(async (req) => {
       ipa: (w.ipa ?? '').trim(),
       example_en: (w.example_en ?? '').trim(),
       example_pt: (w.example_pt ?? '').trim(),
+      example_past_en: (w.example_past_en ?? '').trim(),
+      example_past_pt: (w.example_past_pt ?? '').trim(),
+      example_future_en: (w.example_future_en ?? '').trim(),
+      example_future_pt: (w.example_future_pt ?? '').trim(),
       emoji: (w.emoji ?? '📚').trim() || '📚',
-      category: (w.category ?? 'Banco').trim() || 'Banco',
+      category: normCat(w.category ?? 'Banco'),
     }));
 
   if (clean.length === 0) return json({ words: [] });

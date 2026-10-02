@@ -1,37 +1,63 @@
-import { useEffect, useState } from 'react';
-import { ShieldCheck, Trash2, RotateCcw, Users, BookOpen, CalendarDays, Plus, Pencil, Power, Ban, UserX } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ShieldCheck, Trash2, RotateCcw, Users, BookOpen, CalendarDays, Plus, Pencil, Power, Ban, UserX, KeyRound, X, Eye, UserCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { STRINGS } from '../lib/i18n';
-import { useStore } from '../store/useStore';
+import { useStore, type AdminUserRow } from '../store/useStore';
+import { passwordIssue } from '../lib/password';
 
 interface Profile {
   id: string;
+  email?: string;
   display_name: string | null;
   role: string;
   xp: number;
   created_at: string;
   is_blocked: boolean;
+  must_change_password?: boolean;
 }
 
 interface BankRow {
   bank_id: string; en: string; pt: string; phonetic_br: string; ipa: string;
   example_en: string; example_pt: string; emoji: string; category: string; active: boolean;
+  example_past_en?: string; example_past_pt?: string;
+  example_future_en?: string; example_future_pt?: string;
+}
+
+interface VisitRow {
+  visitor_id: string;
+  user_id: string | null;
+  visited_at: string;
+  lang: string;
+}
+
+const VISIT_LIMIT = 5000;
+
+function dayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export default function AdminPanel() {
   const { role, user, newPerDay, setNewPerDay, autoNewPerDay, setAutoNewPerDay,
     autoAddEnabled, setAutoAddEnabled, autoAddTimes, setAutoAddTimes,
-    demoMax, setDemoMax, adminCreateUser, manageUser, lang } = useStore();
+    demoMax, setDemoMax, adminCreateUser, manageUser, adminListUsers, adminResetPassword, lang } = useStore();
   const t = STRINGS[lang];
   const [nuName, setNuName] = useState('');
   const [nuEmail, setNuEmail] = useState('');
   const [nuPass, setNuPass] = useState('');
+  const [resetTarget, setResetTarget] = useState<Profile | null>(null);
+  const [resetPw, setResetPw] = useState('');
+  const [resetErr, setResetErr] = useState<string | null>(null);
   const db = () => {
     if (!supabase) throw new Error(t.adm_nodb);
     return supabase;
   };
   const [users, setUsers] = useState<Profile[]>([]);
   const [counts, setCounts] = useState({ cards: 0, days: 0, bank: 0 });
+  const [visits, setVisits] = useState<VisitRow[]>([]);
+  const [visitsCapped, setVisitsCapped] = useState(false);
   const [bank, setBank] = useState<BankRow[]>([]);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -45,15 +71,42 @@ export default function AdminPanel() {
 
   const reload = async () => {
     if (!supabase) return;
-    const [u, c, d, b] = await Promise.all([
-      db().from('profiles').select('id,display_name,role,xp,created_at,is_blocked').order('created_at', { ascending: false }).limit(200),
+    // E-mails vêm do Auth via Edge (profiles não tem e-mail). Fallback: profiles direto.
+    try {
+      const res = await adminListUsers();
+      if (res.ok && res.users.length > 0) {
+        const mapped: Profile[] = res.users.map((r: AdminUserRow) => ({
+          id: r.id,
+          email: r.email,
+          display_name: r.profile?.display_name ?? null,
+          role: r.profile?.role ?? 'user',
+          xp: r.profile?.xp ?? 0,
+          created_at: r.profile?.created_at ?? r.created_at ?? '',
+          is_blocked: r.profile?.is_blocked ?? false,
+          must_change_password: r.profile?.must_change_password,
+        }));
+        setUsers(mapped);
+      } else if (res.ok) {
+        setUsers([]);
+      } else {
+        throw new Error(res.msg);
+      }
+    } catch {
+      const u = await db().from('profiles').select('id,display_name,role,xp,created_at,is_blocked').order('created_at', { ascending: false }).limit(200);
+      if (u.data) setUsers(u.data as Profile[]);
+    }
+    const [c, d, b, v] = await Promise.all([
       db().from('cards').select('id', { count: 'exact', head: true }),
       db().from('study_days').select('studied', { count: 'exact', head: true }),
       db().from('word_bank').select('*').order('bank_id').limit(1000),
+      db().from('visits').select('visitor_id,user_id,visited_at,lang').order('visited_at', { ascending: false }).limit(VISIT_LIMIT),
     ]);
-    if (u.data) setUsers(u.data as Profile[]);
     setCounts({ cards: c.count ?? 0, days: d.count ?? 0, bank: (b.data as BankRow[] | null)?.length ?? 0 });
     if (b.data) setBank(b.data as BankRow[]);
+    if (v.data) {
+      setVisits(v.data as VisitRow[]);
+      setVisitsCapped((v.data as VisitRow[]).length >= VISIT_LIMIT);
+    }
   };
 
   useEffect(() => {
@@ -109,6 +162,25 @@ export default function AdminPanel() {
       flash(res.msg);
     });
 
+  const submitResetPw = () =>
+    run(`reset-pw-${resetTarget?.id ?? ''}`, async () => {
+      if (!resetTarget) return;
+      const issue = passwordIssue(resetPw);
+      if (issue) {
+        setResetErr(issue === 'short' ? t.pwd_short : t.pwd_weak);
+        return;
+      }
+      const res = await adminResetPassword(resetTarget.id, resetPw);
+      if (!res.ok) {
+        setResetErr(res.msg);
+        return;
+      }
+      setResetTarget(null);
+      setResetPw('');
+      setResetErr(null);
+      flash(res.msg);
+    });
+
   const saveBank = () =>
     run('bank-save', async () => {
       if (!editingBank || !editingBank.en?.trim() || !editingBank.pt?.trim()) return;
@@ -118,6 +190,8 @@ export default function AdminPanel() {
           bank_id, en: editingBank.en.trim(), pt: editingBank.pt.trim(),
           phonetic_br: editingBank.phonetic_br ?? '', ipa: editingBank.ipa ?? '',
           example_en: editingBank.example_en ?? '', example_pt: editingBank.example_pt ?? '',
+          example_past_en: editingBank.example_past_en ?? '', example_past_pt: editingBank.example_past_pt ?? '',
+          example_future_en: editingBank.example_future_en ?? '', example_future_pt: editingBank.example_future_pt ?? '',
           emoji: editingBank.emoji || '📚', category: editingBank.category || 'Banco', active: true,
         });
         if (error) throw error;
@@ -143,6 +217,45 @@ export default function AdminPanel() {
     return (b.en + ' ' + b.pt + ' ' + b.category).toLowerCase().includes(n);
   });
 
+  const mon = useMemo(() => {
+    const today = dayKey(new Date());
+    const weekAgo = Date.now() - 7 * 86400000;
+    const uniq = new Set<string>();
+    const logged = new Set<string>();
+    let todayN = 0;
+    let weekN = 0;
+    const days: { key: string; label: string; n: number }[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      days.push({
+        key: dayKey(d),
+        label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
+        n: 0,
+      });
+    }
+    const byKey = new Map(days.map((x) => [x.key, x]));
+    for (const r of visits) {
+      uniq.add(r.visitor_id);
+      if (r.user_id) logged.add(r.user_id);
+      const t = new Date(r.visited_at).getTime();
+      if (Number.isFinite(t)) {
+        if (dayKey(new Date(t)) === today) todayN += 1;
+        if (t >= weekAgo) weekN += 1;
+        const slot = byKey.get(dayKey(new Date(t)));
+        if (slot) slot.n += 1;
+      }
+    }
+    return {
+      total: visits.length,
+      uniq: uniq.size,
+      logged: logged.size,
+      todayN,
+      weekN,
+      days,
+      max: Math.max(1, ...days.map((x) => x.n)),
+    };
+  }, [visits]);
+
   return (
     <div className="grid gap-4">
       <div className="rounded-3xl p-5 bg-gradient-to-br from-prussian to-[#0a1c2c] text-white">
@@ -156,6 +269,38 @@ export default function AdminPanel() {
       </div>
 
       {msg && <div className="px-4 py-2.5 rounded-2xl bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20 text-sm font-bold animate-pop-in">{msg}</div>}
+
+      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
+        <p className="font-black text-sm mb-1">📊 {t.mon_title}</p>
+        <p className="text-xs text-slate-500 mb-3">{t.mon_sub}</p>
+        {visits.length === 0 ? (
+          <p className="text-sm text-slate-500">{t.mon_empty}</p>
+        ) : (
+          <>
+            <div className="flex gap-5 flex-wrap">
+              <div><p className="text-2xl font-black inline-flex items-center gap-1"><Eye size={18} />{mon.total}{visitsCapped ? '+' : ''}</p><p className="text-xs opacity-70">{t.mon_total}</p></div>
+              <div><p className="text-2xl font-black inline-flex items-center gap-1"><Users size={18} />{mon.uniq}{visitsCapped ? '+' : ''}</p><p className="text-xs opacity-70">{t.mon_unique}</p></div>
+              <div><p className="text-2xl font-black inline-flex items-center gap-1"><UserCheck size={18} />{mon.logged}</p><p className="text-xs opacity-70">{t.mon_logged}</p></div>
+              <div><p className="text-2xl font-black">📅 {mon.todayN}</p><p className="text-xs opacity-70">{t.mon_today}</p></div>
+              <div><p className="text-2xl font-black">🗓️ {mon.weekN}</p><p className="text-xs opacity-70">{t.mon_7d}</p></div>
+            </div>
+            <p className="text-xs font-bold mt-4 mb-1">{t.mon_14d}</p>
+            <div className="flex items-end gap-1 h-24">
+              {mon.days.map((d) => (
+                <div key={d.key} title={`${d.label}: ${d.n}`} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0">
+                  <span className="text-[10px] font-black tabular-nums">{d.n > 0 ? d.n : ''}</span>
+                  <div
+                    className="w-full rounded-t-md bg-gradient-to-t from-sapphire to-carolina min-h-1"
+                    style={{ height: `${Math.max(4, (d.n / mon.max) * 64)}px`, opacity: d.n > 0 ? 1 : 0.25 }}
+                  />
+                  <span className="text-[9px] text-slate-400 tabular-nums">{d.label}</span>
+                </div>
+              ))}
+            </div>
+            {visitsCapped && <p className="text-[11px] text-slate-400 mt-2">{t.mon_capped}</p>}
+          </>
+        )}
+      </div>
 
       <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
         <p className="font-black text-sm mb-3">{t.adm_cfg}</p>
@@ -226,10 +371,15 @@ export default function AdminPanel() {
           {users.map((u) => (
             <div key={u.id} className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl text-sm ${u.is_blocked ? 'bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20' : 'bg-slate-50 dark:bg-white/5'}`}>
               <span className="font-black">{u.display_name || '(sem nome)'}</span>
+              {u.email && <span className="text-xs text-slate-500 truncate max-w-52" title={u.email}>✉️ {u.email}</span>}
               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-sapphire text-white' : 'bg-slate-200 dark:bg-white/10'}`}>{u.role}</span>
               {u.is_blocked && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-500 text-white">⛔ {t.adm_blocked}</span>}
+              {u.must_change_password && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-600 dark:text-amber-300">🔑 {t.adm_must_change}</span>}
               <span className="text-xs text-slate-500">⚡{u.xp} XP</span>
               <span className="flex-1" />
+              <button disabled={busy !== null} onClick={() => { setResetTarget(u); setResetPw(''); setResetErr(null); }} title={t.adm_reset_title} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-sky-500/15 text-sky-600 dark:text-sky-300 disabled:opacity-50">
+                <KeyRound size={12} /> {t.adm_reset_pw}
+              </button>
               <button disabled={busy !== null} onClick={() => resetUser(u.id, u.display_name || u.id.slice(0, 8))} title={t.adm_zero_title} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-300 disabled:opacity-50">
                 <RotateCcw size={12} /> {busy === `reset-${u.id}` ? '...' : t.adm_zero}
               </button>
@@ -276,6 +426,37 @@ export default function AdminPanel() {
         {filteredBank.length > 120 && <p className="text-[11px] text-slate-400 mt-1">{t.adm_bank_show} 120 {t.adm_bank_show_of} {filteredBank.length} {t.adm_bank_refine}</p>}
       </div>
 
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setResetTarget(null)}>
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 animate-pop-in shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <p className="font-black inline-flex items-center gap-1.5"><KeyRound size={16} /> {t.adm_reset_title} {resetTarget.display_name || resetTarget.email || ''}</p>
+              <button onClick={() => setResetTarget(null)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-white/10"><X size={16} /></button>
+            </div>
+            {resetTarget.email && <p className="text-xs text-slate-500 mb-3">✉️ {resetTarget.email}</p>}
+            <label className="block text-xs font-bold">{t.adm_new_pass}
+              <input
+                value={resetPw}
+                onChange={(e) => { setResetPw(e.target.value); setResetErr(null); }}
+                type="password"
+                placeholder="••••••"
+                onKeyDown={(e) => { if (e.key === 'Enter') submitResetPw(); }}
+                className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm"
+              />
+            </label>
+            {resetErr && <p className="mt-2 text-xs font-bold text-rose-500">{resetErr}</p>}
+            <button
+              onClick={submitResetPw}
+              disabled={busy !== null || resetPw.length < 8}
+              className="mt-3 w-full py-3 rounded-2xl bg-sapphire text-white font-black text-sm disabled:opacity-40 active:scale-[0.98]"
+            >
+              {busy === `reset-pw-${resetTarget.id}` ? t.adm_creating : `🔑 ${t.adm_reset_save}`}
+            </button>
+            <button onClick={() => setResetTarget(null)} className="mt-2 w-full py-2 text-xs font-bold text-slate-500">{t.adm_reset_cancel}</button>
+          </div>
+        </div>
+      )}
+
       {editingBank && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setEditingBank(null)}>
           <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 animate-pop-in" onClick={(e) => e.stopPropagation()}>
@@ -287,6 +468,14 @@ export default function AdminPanel() {
               <label>IPA<input value={editingBank.ipa ?? ''} onChange={(e) => setEditingBank({ ...editingBank, ipa: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
               <label className="col-span-2">{t.adm_bank_f_exen}<input value={editingBank.example_en ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_en: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
               <label className="col-span-2">{t.adm_bank_f_expt}<input value={editingBank.example_pt ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_pt: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
+              <label className="col-span-2 text-slate-500">⏱ {t.lib_tenses} (opcional)
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <input value={editingBank.example_past_en ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_past_en: e.target.value })} placeholder={`${t.lib_tense_past} EN`} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
+                  <input value={editingBank.example_past_pt ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_past_pt: e.target.value })} placeholder={`${t.lib_tense_past} PT`} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
+                  <input value={editingBank.example_future_en ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_future_en: e.target.value })} placeholder={`${t.lib_tense_future} EN`} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
+                  <input value={editingBank.example_future_pt ?? ''} onChange={(e) => setEditingBank({ ...editingBank, example_future_pt: e.target.value })} placeholder={`${t.lib_tense_future} PT`} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
+                </div>
+              </label>
               <label>{t.adm_bank_f_emoji}<input value={editingBank.emoji ?? ''} onChange={(e) => setEditingBank({ ...editingBank, emoji: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
               <label>{t.adm_bank_f_cat}<input value={editingBank.category ?? ''} onChange={(e) => setEditingBank({ ...editingBank, category: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
             </div>

@@ -15,6 +15,7 @@ import {
   fetchBankBatch,
   generateBankBatch,
   insertCardRows,
+  isUuidId,
   loadWorkspace,
   syncProfileMeta,
   updateAppSettings,
@@ -22,12 +23,74 @@ import {
   upsertCardRow,
   upsertStudyDay,
 } from '../lib/cloud';
+import {
+  ackOps,
+  appendOp,
+  backoffMs as journalBackoffMs,
+  coalesceOps,
+  getBackoff,
+  legacyToOps,
+  listOps,
+  remapCardIdInOps,
+  replaceOps,
+  setBackoff,
+} from '../lib/outbox';
 import type { Card, DayStat, Pile, Tab } from '../types';
 
 /** Teto padrão do modo demonstração (sem login). Editável no painel admin. */
 export const DEMO_MAX_DEFAULT = 100;
 
 const DEMO_STASH_KEY = 'gringoles-demo-stash';
+/**
+ * Proveniência do workspace em memória no STORE_KEY: 'demo' ou `full:<userId>`.
+ * Sem ela, o boot com sessão expirada (ou app fechado logado) confunde os cards
+ * full persistidos com demo — o stash guarda a nuvem como "demo" e o logout
+ * restaura dados full no modo demo, estourando o teto. Demo e full nunca se misturam.
+ */
+const WORKSPACE_KEY = 'gringoles-workspace';
+
+function workspaceMark(): string {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY) ?? 'demo';
+  } catch {
+    return 'demo';
+  }
+}
+
+function setWorkspaceMark(v: string): void {
+  try {
+    localStorage.setItem(WORKSPACE_KEY, v);
+  } catch { /* noop */ }
+}
+
+/** Aplica um DemoStash ao estado (logout / reset sem sessão). */
+function applyDemoStash(stash: DemoStash): void {
+  useStore.setState({
+    cards: stash.cards, xp: stash.xp, stats: stash.stats,
+    dayStreak: stash.dayStreak, bestStreak: stash.bestStreak,
+    lastStudyDate: stash.lastStudyDate, lastAutoAddDate: stash.lastAutoAddDate,
+    lastAutoAddSlots: stash.lastAutoAddSlots ?? {},
+    newPerDay: stash.newPerDay, autoNewPerDay: stash.autoNewPerDay,
+    autoAddEnabled: stash.autoAddEnabled,
+    autoAddTimes: normalizeTimesInput(stash.autoAddTimes ?? [...DEFAULT_AUTO_ADD_TIMES]),
+    demoMax: stash.demoMax ?? DEMO_MAX_DEFAULT,
+    lang: stash.lang || 'pt',
+  });
+}
+
+/** Demo zerada (seed) — fallback quando não há stash (ex: 1º login do aparelho). */
+function applySeedDemo(): void {
+  useStore.setState({
+    cards: initialCards(),
+    xp: 0,
+    stats: [],
+    dayStreak: 0,
+    bestStreak: 0,
+    lastStudyDate: '',
+    lastAutoAddDate: '',
+    lastAutoAddSlots: {},
+  });
+}
 
 interface DemoStash {
   cards: Card[];
@@ -69,6 +132,18 @@ function readStash(): DemoStash | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Stash plausível? A demo genuína nunca supera o próprio teto (add/import/lote
+ * impõem o limite) — se superou, o stash foi contaminado com dados full
+ * (bug antigo) e deve ser descartado em favor da seed.
+ */
+function plausibleStash(stash: DemoStash | null): DemoStash | null {
+  if (!stash || !Array.isArray(stash.cards)) return null;
+  const cap = stash.demoMax ?? DEMO_MAX_DEFAULT;
+  if (stash.cards.length > cap) return null;
+  return stash;
 }
 
 function passwordMsg(lang: Lang): string {
@@ -132,10 +207,9 @@ function normalizeTimesInput(v: string[]): string[] {
   return uniq.length > 0 ? uniq.slice(0, 4) : [...DEFAULT_AUTO_ADD_TIMES];
 }
 
-/** Backoff exponencial da fila: 5s, 30s, 2min, 10min (teto). */
+/** Backoff exponencial da fila: 5s, 30s, 2min, 10min (teto). Delegado ao journal. */
 function backoffMs(attempts: number): number {
-  const table = [5000, 30000, 120000, 600000];
-  return table[Math.min(Math.max(0, attempts), table.length - 1)];
+  return journalBackoffMs(attempts);
 }
 
 function bumpDayStat(stats: DayStat[], studiedDelta: number, knownDelta: number): DayStat[] {
@@ -149,6 +223,66 @@ function bumpDayStat(stats: DayStat[], studiedDelta: number, knownDelta: number)
     );
   }
   return [...stats, { date: key, studied: studiedDelta, known: knownDelta }].slice(-30);
+}
+
+/** userId da fila v2 (null = demo local). Journal é por conta — demo nunca vaza p/ full. */
+function journalKey(): string | null {
+  try {
+    return useStore.getState().user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Espelha o tamanho do journal no estado (p/ UI reativa) sem guardar payload no persist. */
+function refreshPendingMirror(): void {
+  try {
+    const n = listOps(journalKey()).length;
+    const cur = useStore.getState().pendingCount;
+    if (cur !== n) useStore.setState({ pendingCount: n });
+  } catch { /* noop */ }
+}
+
+/**
+ * Garante id uuid válido p/ nuvem. Cards vindos do demo/import (seed-…, csv-…,
+ * uid()) quebram o upsert no Postgres PARA SEMPRE (invalid input syntax for
+ * type uuid) — essa era a causa do banner de pendência que nunca sumia.
+ * Remapeia o id local 1x (estado + ops de foto) e devolve o card vigente.
+ */
+function ensureCloudCardId(id: string): Card | null {
+  const s = useStore.getState();
+  const c = s.cards.find((k) => k.id === id);
+  if (!c) return null;
+  if (isUuidId(c.id)) return c;
+  let fresh: string;
+  try {
+    fresh = crypto.randomUUID();
+  } catch {
+    fresh = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  const patched = { ...c, id: fresh };
+  useStore.setState((st) => ({
+    cards: st.cards.map((k) => (k.id === id ? patched : k)),
+  }));
+  try {
+    remapCardIdInOps(s.user?.id ?? null, id, fresh);
+  } catch { /* noop */ }
+  return patched;
+}
+
+export interface AdminUserRow {
+  id: string;
+  email?: string;
+  created_at?: string;
+  profile: {
+    id: string;
+    display_name: string | null;
+    role: string;
+    xp: number;
+    created_at: string;
+    is_blocked: boolean;
+    must_change_password?: boolean;
+  } | null;
 }
 
 interface Store {
@@ -217,12 +351,23 @@ interface Store {
   setShowInvite: (v: boolean, msg?: string) => void;
   showTutorial: boolean;
   setShowTutorial: (v: boolean) => void;
+  showProfile: boolean;
+  setShowProfile: (v: boolean) => void;
+  updateDisplayName: (name: string) => Promise<{ ok: boolean; msg: string }>;
+  /** Admin lista usuários com e-mail (via Edge admin-manage-user action=list). */
+  adminListUsers: () => Promise<{ ok: boolean; msg: string; users: AdminUserRow[] }>;
+  /** Admin define nova senha inicial (força troca no 1º acesso). */
+  adminResetPassword: (userId: string, password: string) => Promise<{ ok: boolean; msg: string }>;
   /** Fila de sincronização pendente (modo offline). Persistida — sobrevive reload. */
   outbox: { cards: string[]; deletes: string[]; meta: boolean; attempts: number; nextRetryAt: number };
   /** true durante flushOutbox (evita duplo flush). */
   syncing: boolean;
   /** Fotos (dataUrl) aguardando upload — cardId -> dataUrl. */
   pendingPhotos: Record<string, string>;
+  /** Contador derivado do journal v2 (fonte de verdade p/ UI). */
+  pendingCount: number;
+  /** Recalcula pendingCount a partir do journal (por usuário). */
+  refreshPending: () => void;
   /** Enfileira foto para tentar de novo no flush. */
   queuePhoto: (cardId: string, dataUrl: string) => void;
   /** Descarrega a fila na nuvem. force=true ignora o backoff. Retorna qtd sincronizada. */
@@ -274,12 +419,16 @@ export const useStore = create<Store>()(
       showAuth: false,
       showInvite: false,
       showTutorial: false,
+      showProfile: false,
+      setShowProfile: (showProfile) => set({ showProfile }),
       outbox: { cards: [], deletes: [], meta: false, attempts: 0, nextRetryAt: 0 },
       inviteMsg: '',
       mustChangePassword: false,
       cloudNotice: null,
       syncing: false,
       pendingPhotos: {},
+      pendingCount: 0,
+      refreshPending: () => refreshPendingMirror(),
 
       // Abrir/voltar para Estudar sempre seleciona a 1ª caixa (Novas).
       setTab: (tab) => set((s) => (tab === 'study' && s.tab !== 'study' ? { tab, pileFilter: 'new' } : { tab })),
@@ -402,9 +551,16 @@ export const useStore = create<Store>()(
         const s = get();
         set({ cards: s.cards.filter((c) => c.id !== id) });
         if (s.user && supabase) {
-          deleteCardRow(s.user.id, id).catch((e) => {
-            enqueueOutbox({ deletes: [id] });
+          const uid = s.user.id;
+          appendOp(uid, { type: 'delete-card', id });
+          refreshPendingMirror();
+          const sentAt = Date.now();
+          deleteCardRow(uid, id).then(() => {
+            ackOps(uid, listOps(uid).filter((o) => o.type === 'delete-card' && o.id === id && o.ts <= sentAt).map((o) => o.opId));
+            refreshPendingMirror();
+          }).catch((e) => {
             get().setCloudNotice(cloudErr('Não apaguei na nuvem', 'Cloud delete failed', e));
+            void get().flushOutbox().catch(() => {});
           });
         }
       },
@@ -435,8 +591,26 @@ export const useStore = create<Store>()(
             inviteLocked(s.cards.length);
           }
         }
+        // Em modo full todo import ganha id uuid novo: evita colisão com ids de
+        // outra conta (o RLS barraria o upsert p/ sempre) e com ids locais
+        // não-uuid (o Postgres rejeitaria p/ sempre). Dedupe por EN já ocorreu.
+        if (s.user && supabase) {
+          batch = batch.map((c) => {
+            try {
+              return { ...c, id: crypto.randomUUID() };
+            } catch {
+              return { ...c, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` };
+            }
+          });
+        }
         if (batch.length > 0) set({ cards: [...batch, ...s.cards] });
-        if (s.user && supabase && batch.length > 0) void reloadCloudCards();
+        if (s.user && supabase && batch.length > 0) {
+          // Enfileira cada card (fiel) e tenta subir; reload converge ids do servidor.
+          const jkey = s.user.id;
+          for (const c of batch) appendOp(jkey, { type: 'upsert-card', card: c });
+          refreshPendingMirror();
+          void get().flushOutbox().catch(() => {});
+        }
         return { added: batch.length, skipped: dups.length + (fresh.length - batch.length), limited };
       },
 
@@ -507,6 +681,14 @@ export const useStore = create<Store>()(
             set({ cards: ws.cards, lastAutoAddSlots: nextSlots, lastAutoAddDate: today });
             return total;
           } catch (e) {
+            // Falha no meio da jornada do lote: enfileira p/ retry e mantém slots pendentes.
+            try {
+              const jkey = get().user?.id ?? null;
+              if (jkey) {
+                appendOp(jkey, { type: 'daily-batch', count: get().autoNewPerDay });
+                refreshPendingMirror();
+              }
+            } catch { /* noop */ }
             get().setCloudNotice(cloudErr('Lote diário falhou', 'Daily batch failed', e));
             return 0;
           }
@@ -582,6 +764,13 @@ export const useStore = create<Store>()(
             set({ cards: ws.cards });
             return fresh.length;
           } catch (e) {
+            try {
+              const jkey = get().user?.id ?? null;
+              if (jkey) {
+                appendOp(jkey, { type: 'daily-batch', count: get().autoNewPerDay });
+                refreshPendingMirror();
+              }
+            } catch { /* noop */ }
             get().setCloudNotice(cloudErr('Lote diário falhou', 'Daily batch failed', e));
             return 0;
           }
@@ -607,93 +796,123 @@ export const useStore = create<Store>()(
       setShowAuth: (showAuth) => set({ showAuth, authError: null, authNotice: null }),
       setShowTutorial: (showTutorial) => set({ showTutorial }),
 
-      queuePhoto: (cardId, dataUrl) =>
-        set((s) => ({ pendingPhotos: { ...(s.pendingPhotos ?? {}), [cardId]: dataUrl } })),
+      queuePhoto: (cardId, dataUrl) => {
+        appendOp(journalKey(), { type: 'photo', cardId, dataUrl });
+        refreshPendingMirror();
+        void useStore.getState().flushOutbox().catch(() => {});
+      },
 
       flushOutbox: async (force = false) => {
         const s = get();
         if (!s.user || !supabase) return 0;
         if (s.syncing) return 0;
-        if (!force && (s.outbox.nextRetryAt ?? 0) > Date.now()) return 0;
-        const cards = [...new Set(s.outbox.cards ?? [])];
-        const deletes = [...new Set(s.outbox.deletes ?? [])];
-        const meta = s.outbox.meta === true;
-        const photos = { ...(s.pendingPhotos ?? {}) };
-        const photoIds = Object.keys(photos);
-        if (cards.length === 0 && deletes.length === 0 && !meta && photoIds.length === 0) return 0;
+        const jkey = s.user.id;
+        const bo = getBackoff(jkey);
+        if (!force && bo.nextRetryAt > Date.now()) return 0;
+        const queued = coalesceOps(listOps(jkey));
+        if (queued.length === 0) {
+          refreshPendingMirror();
+          return 0;
+        }
         set({ syncing: true });
+        const acked: string[] = [];
         let done = 0;
-        const failedCards: string[] = [];
-        const failedDeletes: string[] = [];
-        const failedPhotos: Record<string, string> = {};
-        let metaOk = true;
-        for (const id of deletes) {
+        let failed = false;
+        const remainingBatches: typeof queued = [];
+        for (const op of queued) {
           try {
-            await deleteCardRow(s.user.id, id);
-            done += 1;
-          } catch {
-            failedDeletes.push(id);
-          }
-        }
-        // Fotos pendentes: tenta upload e grava photoUrl no card
-        for (const cardId of photoIds) {
-          try {
-            const url = await uploadPhoto(s.user.id, photos[cardId]);
-            const c = get().cards.find((k) => k.id === cardId);
-            if (c) {
-              const patched = { ...c, photoUrl: url, photo: undefined };
-              useStore.setState((st) => ({
-                cards: st.cards.map((k) => (k.id === cardId ? patched : k)),
-              }));
-              await upsertCardRow(s.user.id, patched);
+            if (op.type === 'delete-card') {
+              await deleteCardRow(s.user.id, op.id);
+            } else if (op.type === 'photo') {
+              const target = ensureCloudCardId(op.cardId) ?? get().cards.find((k) => k.id === op.cardId);
+              const dataUrl = op.dataUrl;
+              const url = await uploadPhoto(s.user.id, dataUrl);
+              const c = target ?? get().cards.find((k) => k.id === op.cardId);
+              if (c) {
+                const patched = { ...c, photoUrl: url, photo: undefined };
+                useStore.setState((st) => ({
+                  cards: st.cards.map((k) => (k.id === c.id ? patched : k)),
+                }));
+                await upsertCardRow(s.user.id, patched);
+              }
+            } else if (op.type === 'upsert-card') {
+              // Usa o estado atual do card (mais fiel que o payload do momento do append).
+              // Normaliza id não-uuid antes (causa raiz do banner preso p/ sempre).
+              const fixed = ensureCloudCardId(op.card.id);
+              const live = fixed ?? get().cards.find((k) => k.id === op.card.id);
+              if (!live) {
+                // Foi apagado depois — o delete correspondente cobre.
+              } else {
+                await upsertCardRow(s.user.id, live);
+              }
+            } else if (op.type === 'meta') {
+              const cur = get();
+              await syncProfileMeta(s.user.id, {
+                xp: cur.xp, dayStreak: cur.dayStreak, bestStreak: cur.bestStreak, lastStudyDate: cur.lastStudyDate,
+              });
+              const today = new Date().toISOString().slice(0, 10);
+              const day = cur.stats.find((d) => d.date === today);
+              await upsertStudyDay(s.user.id, today, day?.studied ?? 0, day?.known ?? 0);
+            } else if (op.type === 'daily-batch') {
+              // Lote diário pendente: tenta resolver agora; se falhar, mantém p/ retry.
+              const ok = await resolveDailyBatchOp(op.count);
+              if (!ok) {
+                remainingBatches.push(op);
+                failed = true;
+                continue;
+              }
             }
+            acked.push(op.opId);
             done += 1;
-          } catch {
-            failedPhotos[cardId] = photos[cardId];
+          } catch (e) {
+            failed = true;
+            try {
+              console.warn('[outbox] flush: op falhou — mantida p/ retry', {
+                type: op.type,
+                id: op.type === 'upsert-card' ? op.card.id : op.type === 'delete-card' ? op.id : op.type === 'photo' ? op.cardId : undefined,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            } catch { /* noop */ }
+            if (op.type === 'daily-batch') remainingBatches.push(op);
           }
         }
-        for (const id of cards) {
-          const c = get().cards.find((k) => k.id === id);
-          if (!c) continue; // foi apagado depois — delete cobre
-          try {
-            await upsertCardRow(s.user.id, c);
-            done += 1;
-          } catch {
-            failedCards.push(id);
-          }
-        }
-        if (meta) {
-          try {
-            const cur = get();
-            await syncProfileMeta(s.user.id, {
-              xp: cur.xp, dayStreak: cur.dayStreak, bestStreak: cur.bestStreak, lastStudyDate: cur.lastStudyDate,
-            });
-            const today = new Date().toISOString().slice(0, 10);
-            const day = cur.stats.find((d) => d.date === today);
-            await upsertStudyDay(s.user.id, today, day?.studied ?? 0, day?.known ?? 0);
-            done += 1;
-          } catch {
-            metaOk = false;
-          }
-        }
-        const failed = failedCards.length + failedDeletes.length + Object.keys(failedPhotos).length > 0 || !metaOk;
-        const attempts = failed ? (s.outbox.attempts ?? 0) + 1 : 0;
+        // Remove só o que teve ack (limpeza segura). Falhados permanecem.
+        ackOps(jkey, acked);
+        const left = listOps(jkey).length;
+        const attempts = failed || left > 0 ? bo.attempts + 1 : 0;
+        setBackoff(jkey, {
+          attempts,
+          nextRetryAt: failed || left > 0 ? Date.now() + backoffMs(attempts) : 0,
+        });
+        // Espelho legado zerado — fonte de verdade é o journal v2.
         set({
           syncing: false,
-          pendingPhotos: failedPhotos,
-          outbox: {
-            cards: failedCards,
-            deletes: failedDeletes,
-            meta: meta ? !metaOk : false,
-            attempts,
-            nextRetryAt: failed ? Date.now() + backoffMs(attempts) : 0,
-          },
+          pendingPhotos: {},
+          outbox: { cards: [], deletes: [], meta: false, attempts, nextRetryAt: failed || left > 0 ? Date.now() + backoffMs(attempts) : 0 },
         });
-        if (failed) {
+        refreshPendingMirror();
+        if ((failed || left > 0) && acked.length === 0 && done === 0) {
+          // Nada subiu — mantém aviso sem spam.
+          get().setCloudNotice(L() === 'en' ? '⚠️ Some items are still pending sync. I’ll retry automatically.' : '⚠️ Alguns itens seguem pendentes. Vou tentar de novo sozinho.');
+          return 0;
+        }
+        if (left === 0 && !failed) {
+          // Pull-after-push: converge com a nuvem (ids gerados no servidor, etc).
+          try {
+            const ws = await loadWorkspace(s.user.id);
+            // Só troca cards se não surgiu nada novo no journal durante o pull.
+            if (listOps(jkey).length === 0) set({ cards: ws.cards });
+            set({ cloudNotice: null });
+          } catch {
+            // Journal vazio mas pull falhou — mantém cache fiel + aviso leve.
+            get().setCloudNotice(L() === 'en' ? '⚠️ Synced, but cloud refresh failed. Local data kept.' : '⚠️ Sincronizado, mas a leitura da nuvem falhou. Mantive seus dados locais.');
+          }
+        } else if (failed || left > 0) {
           get().setCloudNotice(L() === 'en' ? '⚠️ Some items are still pending sync. I’ll retry automatically.' : '⚠️ Alguns itens seguem pendentes. Vou tentar de novo sozinho.');
         } else if (done > 0) {
           set({ cloudNotice: null });
         }
+        void remainingBatches;
         return done;
       },
       setShowInvite: (showInvite, inviteMsg) =>
@@ -722,7 +941,19 @@ export const useStore = create<Store>()(
         try {
           const { data } = await supabase.auth.getSession();
           const u = data.session?.user;
-          if (u) await loadFull(u.id, u.email ?? '');
+          if (u) {
+            await loadFull(u.id, u.email ?? '');
+          } else if (workspaceMark() !== 'demo') {
+            // Sem sessão mas o workspace persistido era full (app fechado logado
+            // ou sessão expirada): esses cards NÃO são demo. Volta ao demo
+            // genuíno em vez de exibir dados da conta deslogado.
+            const stash = plausibleStash(readStash());
+            if (stash) applyDemoStash(stash);
+            else applySeedDemo();
+            setWorkspaceMark('demo');
+            set({ user: null, role: 'user', displayName: '', mustChangePassword: false, tab: 'study' });
+            refreshPendingMirror();
+          }
         } catch (e) {
           set({ authError: L() === 'en' ? `Could not restore session: ${msg(e)}` : `Falha ao restaurar sessão: ${msg(e)}` });
         } finally {
@@ -774,38 +1005,44 @@ export const useStore = create<Store>()(
       },
 
       signOut: async () => {
+        // Tenta descarregar a fila da conta atual antes de trocar (se online).
+        try {
+          await get().flushOutbox().catch(() => {});
+        } catch { /* offline — journal por user preservado */ }
         try {
           await supabase?.auth.signOut();
         } catch { /* noop */ }
-        const stash = readStash();
-        if (stash) {
-          set({
-            cards: stash.cards, xp: stash.xp, stats: stash.stats,
-            dayStreak: stash.dayStreak, bestStreak: stash.bestStreak,
-            lastStudyDate: stash.lastStudyDate, lastAutoAddDate: stash.lastAutoAddDate,
-            lastAutoAddSlots: stash.lastAutoAddSlots ?? {},
-            newPerDay: stash.newPerDay, autoNewPerDay: stash.autoNewPerDay,
-            autoAddEnabled: stash.autoAddEnabled,
-            autoAddTimes: normalizeTimesInput(stash.autoAddTimes ?? [...DEFAULT_AUTO_ADD_TIMES]),
-            demoMax: stash.demoMax ?? DEMO_MAX_DEFAULT,
-            lang: stash.lang || 'pt',
-          });
-        }
+        // Demo e full são mundos distintos: volta o stash genuíno ou a seed.
+        // Stash contaminado (mais cards que o teto demo) é descartado.
+        const stash = plausibleStash(readStash());
+        if (stash) applyDemoStash(stash);
+        else applySeedDemo();
+        setWorkspaceMark('demo');
         set({ user: null, role: 'user', displayName: '', mustChangePassword: false, tab: 'study' });
+        refreshPendingMirror();
       },
 
       migrateDemoToCloud: async () => {
         const s = get();
         if (!s.user || !supabase) return 0;
-        const stash = readStash();
+        const stash = plausibleStash(readStash());
         const demoCards = (stash?.cards ?? []).filter((c) => c.en.trim() && c.pt.trim());
         if (demoCards.length === 0) return 0;
         try {
           const n = await insertCardRows(s.user.id, demoCards);
           const ws = await loadWorkspace(s.user.id);
           set({ cards: ws.cards });
+          // Limpa journal migrado com sucesso.
+          ackOps(s.user.id, listOps(s.user.id).map((o) => o.opId));
+          refreshPendingMirror();
           return n;
         } catch (e) {
+          // Offline/falha: enfileira cada card demo como upsert (fiel + idempotente).
+          try {
+            for (const c of demoCards) appendOp(s.user.id, { type: 'upsert-card', card: c });
+            refreshPendingMirror();
+            void get().flushOutbox().catch(() => {});
+          } catch { /* noop */ }
           get().setCloudNotice(cloudErr('Migração falhou', 'Migration failed', e));
           return 0;
         }
@@ -888,6 +1125,68 @@ export const useStore = create<Store>()(
         }
       },
 
+      adminListUsers: async () => {
+        if (!supabase) return { ok: false, msg: noDbMsg(), users: [] };
+        if (get().role !== 'admin') {
+          return { ok: false, msg: L() === 'en' ? 'Restricted access.' : 'Acesso restrito.', users: [] };
+        }
+        try {
+          const { data, error } = await supabase.functions.invoke<{ ok: boolean; users?: AdminUserRow[]; error?: string }>(
+            'admin-manage-user',
+            { body: { action: 'list' } },
+          );
+          if (error) return { ok: false, msg: friendlyAuthError(error.message, get().lang), users: [] };
+          if (!(data as { ok?: boolean })?.ok) {
+            return { ok: false, msg: friendlyAuthError(String((data as { error?: string })?.error ?? 'error'), get().lang), users: [] };
+          }
+          return { ok: true, msg: '', users: (data?.users ?? []) as AdminUserRow[] };
+        } catch (e) {
+          return { ok: false, msg: e instanceof Error ? e.message : String(e), users: [] };
+        }
+      },
+
+      adminResetPassword: async (userId, password) => {
+        if (!supabase) return { ok: false, msg: noDbMsg() };
+        if (get().role !== 'admin') return { ok: false, msg: L() === 'en' ? 'Restricted access.' : 'Acesso restrito.' };
+        if (passwordIssue(password)) return { ok: false, msg: passwordMsg(get().lang) };
+        try {
+          const { data, error } = await supabase.functions.invoke<{ ok: boolean; error?: string }>('admin-manage-user', {
+            body: { action: 'reset-password', userId, password },
+          });
+          if (error) return { ok: false, msg: friendlyAuthError(error.message, get().lang) };
+          if (!(data as { ok?: boolean })?.ok) {
+            return { ok: false, msg: friendlyAuthError(String((data as { error?: string })?.error ?? 'error'), get().lang) };
+          }
+          return {
+            ok: true,
+            msg: get().lang === 'en'
+              ? '✅ Password reset! They sign in with the new password and change it on first access.'
+              : '✅ Senha redefinida! Ele entra com a nova senha e troca no 1º acesso.',
+          };
+        } catch (e) {
+          return { ok: false, msg: e instanceof Error ? e.message : String(e) };
+        }
+      },
+
+      updateDisplayName: async (name) => {
+        const clean = name.trim();
+        if (!clean) {
+          return { ok: false, msg: get().lang === 'en' ? 'Type a name.' : 'Digite um nome.' };
+        }
+        if (!supabase || !get().user) return { ok: false, msg: noDbMsg() };
+        try {
+          const { error } = await supabase.from('profiles').update({ display_name: clean }).eq('id', get().user!.id);
+          if (error) throw error;
+          try {
+            await supabase.auth.updateUser({ data: { display_name: clean } });
+          } catch { /* metadata é bônus */ }
+          set({ displayName: clean });
+          return { ok: true, msg: get().lang === 'en' ? '✅ Name updated!' : '✅ Nome atualizado!' };
+        } catch (e) {
+          return { ok: false, msg: e instanceof Error ? e.message : String(e) };
+        }
+      },
+
       changePassword: async (password) => {
         if (!supabase) return false;
         if (passwordIssue(password)) {
@@ -911,8 +1210,8 @@ export const useStore = create<Store>()(
     }),
     {
       name: STORE_KEY,
-      version: 4,
-      migrate: (persisted: unknown) => {
+      version: 5,
+      migrate: ((persisted: unknown) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         const ob = (p.outbox ?? {}) as Record<string, unknown>;
         const rawCards = Array.isArray(p.cards) ? (p.cards as Card[]) : [];
@@ -935,6 +1234,41 @@ export const useStore = create<Store>()(
           : (normalizePile(rawFilter) as Pile | 'all');
         const { ttsEngine: _e, ttsVoiceEN: _en, ttsVoicePT: _pt, ttsRate: _r, ...rest } = p;
         void _e; void _en; void _pt; void _r;
+        // Migra fila legada v4 (ids + pendingPhotos dentro do persist) para o journal v2
+        // por-usuário. Roda 1x; journal v2 vive fora do persist (chave própria).
+        try {
+          const legacyCards = Array.isArray(ob.cards) ? (ob.cards as string[]) : [];
+          const legacyDeletes = Array.isArray(ob.deletes) ? (ob.deletes as string[]) : [];
+          const legacyMeta = (ob.meta as boolean) === true;
+          const legacyPhotos = (p.pendingPhotos ?? {}) as Record<string, string>;
+          const hasLegacy = legacyCards.length > 0 || legacyDeletes.length > 0 || legacyMeta || Object.keys(legacyPhotos).length > 0;
+          if (hasLegacy) {
+            const stats = Array.isArray(p.stats) ? (p.stats as DayStat[]) : [];
+            const today = new Date().toISOString().slice(0, 10);
+            const day = stats.find((d) => d.date === today) ?? null;
+            const ops = legacyToOps({
+              cards: legacyCards,
+              deletes: legacyDeletes,
+              meta: legacyMeta,
+              allCards: cards,
+              pendingPhotos: legacyPhotos,
+              metaSnapshot: {
+                xp: Number(p.xp ?? 0) || 0,
+                dayStreak: Number(p.dayStreak ?? 0) || 0,
+                bestStreak: Number(p.bestStreak ?? 0) || 0,
+                lastStudyDate: String(p.lastStudyDate ?? ''),
+                day,
+              },
+            });
+            if (ops.length > 0) {
+              // Sem userId aqui (sessão ainda não restaurada) → vai para a chave demo;
+              // no login, o flush da conta atual + repull convergem. Se já houver
+              // journal, anexa sem duplicar por coalesce.
+              const existing = listOps(null);
+              replaceOps(null, [...existing, ...ops]);
+            }
+          }
+        } catch { /* migração nunca quebra o boot */ }
         return {
           ...rest,
           cards,
@@ -944,17 +1278,13 @@ export const useStore = create<Store>()(
             : [...DEFAULT_AUTO_ADD_TIMES],
           lastAutoAddSlots: (p.lastAutoAddSlots ?? {}) as Record<string, string>,
           lastAutoAddDate: (p.lastAutoAddDate ?? '') as string,
-          pendingPhotos: (p.pendingPhotos ?? {}) as Record<string, string>,
-          outbox: {
-            cards: (ob.cards ?? []) as string[],
-            deletes: (ob.deletes ?? []) as string[],
-            meta: (ob.meta ?? false) as boolean,
-            attempts: (ob.attempts ?? 0) as number,
-            nextRetryAt: (ob.nextRetryAt ?? 0) as number,
-          },
-        };
-      },
-      partialize: (s) => ({
+          // Legado limpo: journal v2 é a fonte de verdade (fora do persist).
+          pendingPhotos: {},
+          pendingCount: 0,
+          outbox: { cards: [], deletes: [], meta: false, attempts: 0, nextRetryAt: 0 },
+        } as unknown as Store;
+      }) as unknown as (persistedState: unknown, version: number) => Store,
+      partialize: ((s: Store) => ({
         cards: s.cards,
         theme: s.theme,
         pileFilter: s.pileFilter,
@@ -971,9 +1301,7 @@ export const useStore = create<Store>()(
         lastAutoAddDate: s.lastAutoAddDate,
         demoMax: s.demoMax,
         lang: s.lang,
-        outbox: s.outbox,
-        pendingPhotos: s.pendingPhotos,
-      }),
+      })) as unknown as (s: Store) => Store,
     },
   ),
 );
@@ -982,33 +1310,29 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Enfileira para sincronizar depois (offline). Reseta o backoff para tentar em breve. */
-function enqueueOutbox(patch: Partial<{ cards: string[]; deletes: string[]; meta: boolean }>): void {
-  const s = useStore.getState();
-  useStore.setState({
-    outbox: {
-      cards: [...(s.outbox.cards ?? []), ...(patch.cards ?? [])],
-      deletes: [...(s.outbox.deletes ?? []), ...(patch.deletes ?? [])],
-      meta: s.outbox.meta === true || patch.meta === true,
-      attempts: 0,
-      nextRetryAt: 0,
-    },
-  });
-  // Tenta descarregar em background respeitando o backoff (evita retry em loop + spam de aviso).
-  void useStore.getState().flushOutbox().catch(() => {});
-}
-
 /** Sobe um card alterado para a nuvem (somente modo full; silencioso no demo). */
 async function syncCard(id: string): Promise<void> {
   const s = useStore.getState();
   if (!s.user || !supabase) return;
-  const c = s.cards.find((k) => k.id === id);
+  const uid = s.user.id;
+  const c = ensureCloudCardId(id);
   if (!c) return;
+  const sentAt = Date.now();
+  // Journal-first (fiel): grava a op antes de tentar a rede.
+  appendOp(uid, { type: 'upsert-card', card: c });
+  refreshPendingMirror();
   try {
-    await upsertCardRow(s.user.id, c);
+    const live = useStore.getState().cards.find((k) => k.id === c.id) ?? c;
+    await upsertCardRow(uid, live);
+    // Ack preciso: só ops até o envio (edição mais nova concomitante preservada).
+    ackOps(uid, listOps(uid).filter((o) => o.type === 'upsert-card' && o.card.id === c.id && o.ts <= sentAt).map((o) => o.opId));
+    refreshPendingMirror();
   } catch (e) {
-    enqueueOutbox({ cards: [id] });
     useStore.getState().setCloudNotice(cloudErr('Não salvei na nuvem', 'Cloud save failed', e));
+    try {
+      console.warn('[outbox] syncCard falhou — op mantida p/ retry', { id: c.id, error: e });
+    } catch { /* noop */ }
+    void useStore.getState().flushOutbox().catch(() => {});
   }
 }
 
@@ -1016,41 +1340,108 @@ async function syncCard(id: string): Promise<void> {
 async function syncProgress(_studiedDelta: number, _knownDelta: number): Promise<void> {
   const s = useStore.getState();
   if (!s.user || !supabase) return;
+  const uid = s.user.id;
+  const today = new Date().toISOString().slice(0, 10);
+  const day = s.stats.find((d) => d.date === today) ?? { date: today, studied: 0, known: 0 };
+  const sentAt = Date.now();
+  appendOp(uid, {
+    type: 'meta', xp: s.xp, dayStreak: s.dayStreak, bestStreak: s.bestStreak,
+    lastStudyDate: s.lastStudyDate, day,
+  });
+  refreshPendingMirror();
   try {
-    await syncProfileMeta(s.user.id, {
+    await syncProfileMeta(uid, {
       xp: s.xp, dayStreak: s.dayStreak, bestStreak: s.bestStreak, lastStudyDate: s.lastStudyDate,
     });
-    const today = new Date().toISOString().slice(0, 10);
-    const day = s.stats.find((d) => d.date === today);
-    await upsertStudyDay(s.user.id, today, day?.studied ?? 0, day?.known ?? 0);
+    await upsertStudyDay(uid, today, day?.studied ?? 0, day?.known ?? 0);
+    // Ack dos metas até o envio (estado absoluto atual prevalece).
+    ackOps(uid, listOps(uid).filter((o) => o.type === 'meta' && o.ts <= sentAt).map((o) => o.opId));
+    refreshPendingMirror();
   } catch (e) {
-    enqueueOutbox({ meta: true });
     useStore.getState().setCloudNotice(cloudErr('Não salvei na nuvem', 'Cloud save failed', e));
+    try {
+      console.warn('[outbox] syncProgress falhou — op mantida p/ retry', { error: e });
+    } catch { /* noop */ }
+    void useStore.getState().flushOutbox().catch(() => {});
   }
 }
 
-/** Recarrega os cards da nuvem (após import em lote, cujos ids são gerados no servidor). */
-async function reloadCloudCards(): Promise<void> {
+/** Resolve um lote diário pendente (op daily-batch). Retorna true se OK ou nada a fazer. */
+async function resolveDailyBatchOp(count: number): Promise<boolean> {
   const s = useStore.getState();
-  if (!s.user || !supabase) return;
+  if (!s.user || !supabase) return false;
   try {
+    const ownedEN = new Set(s.cards.map((c) => normalizeEN(c.en)));
+    const ownedBankIds = new Set(s.cards.flatMap((c) => (c.bankId ? [c.bankId] : [])));
+    let batch = await fetchBankBatch(ownedEN, ownedBankIds, count);
+    if (batch.length === 0) {
+      try {
+        batch = await generateBankBatch(count);
+      } catch { /* mantém vazio */ }
+    }
+    if (batch.length === 0) return true; // nada a entregar — considera resolvido
+    const at = Date.now();
+    const fresh = batch.map((row, i) => bankRowToCard(row, i, at + i));
+    await insertCardRows(s.user.id, fresh);
     const ws = await loadWorkspace(s.user.id);
-    useStore.setState({ cards: ws.cards });
-  } catch (e) {
-    useStore.getState().setCloudNotice(cloudErr('Não recarreguei da nuvem', 'Cloud reload failed', e));
+    // Só aplica se não surgiram ops novas durante a resolução.
+    if (listOps(s.user.id).length >= 0) useStore.setState({ cards: ws.cards });
+    return true;
+  } catch {
+    return false;
   }
 }
 
 /** Carrega workspace full: preserva o demo em stash e troca o conjunto de trabalho.
- * Retorna false se a conta estiver bloqueada (derruba a sessão). */
+ * Retorna false se a conta estiver bloqueada (derruba a sessão).
+ * Offline/falha: mantém cache local fiel + sessão, marca stale e agenda flush. */
 async function loadFull(userId: string, email: string): Promise<boolean> {
   const s = useStore.getState();
-  if (!s.user) stashDemo(s);
-  const ws = await loadWorkspace(userId);
+  // Só preserva o demo se o workspace atual É demo (marca de proveniência).
+  // Sem isso, cards full persistidos (app fechado logado / sessão expirada)
+  // seriam guardados no stash e voltariam no logout, estourando o teto demo.
+  if (!s.user && workspaceMark() === 'demo') stashDemo(s);
+  // Define a sessão primeiro para o journal por-user funcionar mesmo offline.
+  useStore.setState({
+    user: { id: userId, email },
+    authError: null,
+    tab: 'study',
+  });
+  setWorkspaceMark(`full:${userId}`);
+  // Adota journal órfão da chave demo (migração v4→v5 roda sem sessão e não
+  // sabe o userId). Traz deletes/upserts/photos — meta/daily-batch da era
+  // demo seriam obsoletos e poderiam clobberar a nuvem, então descarta.
+  try {
+    const orphaned = listOps(null).filter((o) => o.type !== 'meta' && o.type !== 'daily-batch');
+    if (orphaned.length > 0) {
+      for (const o of orphaned) {
+        if (o.type === 'delete-card') appendOp(userId, { type: 'delete-card', id: o.id });
+        else if (o.type === 'photo') appendOp(userId, { type: 'photo', cardId: o.cardId, dataUrl: o.dataUrl });
+        else if (o.type === 'upsert-card') appendOp(userId, { type: 'upsert-card', card: o.card });
+      }
+      replaceOps(null, []);
+    }
+  } catch { /* adoção nunca quebra o login */ }
+  refreshPendingMirror();
+  let ws: Awaited<ReturnType<typeof loadWorkspace>> | null = null;
+  try {
+    ws = await loadWorkspace(userId);
+  } catch (e) {
+    // Falha compromete a jornada de carga: não zera nada, mantém cache fiel.
+    useStore.getState().setCloudNotice(cloudErr('Nuvem indisponível — mantive seus dados locais', 'Cloud unavailable — kept local data', e));
+    // Tenta descarregar o que já estava no journal assim que possível.
+    void useStore.getState().flushOutbox().catch(() => {});
+    return true;
+  }
   if (ws.isBlocked) {
     try {
       await supabase?.auth.signOut();
     } catch { /* noop */ }
+    // Conta bloqueada: derruba a sessão E o workspace full (não exibe dados da conta).
+    const blockedStash = plausibleStash(readStash());
+    if (blockedStash) applyDemoStash(blockedStash);
+    else applySeedDemo();
+    setWorkspaceMark('demo');
     useStore.setState({
       user: null, role: 'user', displayName: '', mustChangePassword: false,
       authError: useStore.getState().lang === 'en'
@@ -1058,6 +1449,7 @@ async function loadFull(userId: string, email: string): Promise<boolean> {
         : '⛔ Esta conta está bloqueada. Fale com o administrador.',
       showAuth: true,
     });
+    refreshPendingMirror();
     return false;
   }
   useStore.setState({
@@ -1074,6 +1466,9 @@ async function loadFull(userId: string, email: string): Promise<boolean> {
     authError: null,
     tab: 'study',
   });
+  refreshPendingMirror();
+  // Se havia journal pendente dessa conta, tenta descarregar agora.
+  void useStore.getState().flushOutbox().catch(() => {});
   return true;
 }
 
