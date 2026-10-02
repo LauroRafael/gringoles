@@ -3,7 +3,7 @@ import { Pencil, Plus, Search, Trash2, Upload, Download, Volume2, RotateCcw, X, 
 import { useStore } from '../store/useStore';
 import { playEN } from '../lib/speech';
 import { findDuplicate } from '../lib/dedupe';
-import { compressImage } from '../lib/image';
+import { compressImage, safeMediaUrl } from '../lib/image';
 import { completeWord, completeTenses, uploadPhoto } from '../lib/cloud';
 import { STRINGS } from '../lib/i18n';
 import EmojiPicker from './EmojiPicker';
@@ -489,8 +489,8 @@ export default function Library() {
             <div className={`h-24 bg-gradient-to-br ${c.gradient} flex items-center justify-center text-5xl relative overflow-hidden`}>
               {(c.photoUrl || c.photo) ? (
                 <>
-                  <img src={c.photoUrl || c.photo} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-60" />
-                  <img src={c.photoUrl || c.photo} alt={c.en} className="relative max-w-full max-h-full object-contain drop-shadow" />
+                  <img src={safeMediaUrl(c.photoUrl || c.photo)} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-60" />
+                  <img src={safeMediaUrl(c.photoUrl || c.photo)} alt={c.en} className="relative max-w-full max-h-full object-contain drop-shadow" />
                 </>
               ) : c.emoji}
               <span className="absolute bottom-1.5 left-1.5 text-[10px] font-black px-2 py-0.5 rounded-full bg-black/50 text-white">{c.category}</span>
@@ -679,8 +679,8 @@ export default function Library() {
             </div>
             {(editing.photoUrl || editing.photo) && (
               <div className={`mt-3 w-full h-32 rounded-2xl overflow-hidden relative bg-gradient-to-br ${editing.gradient} flex items-center justify-center`}>
-                <img src={editing.photoUrl || editing.photo} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-60" />
-                <img src={editing.photoUrl || editing.photo} alt="preview" className="relative max-w-full max-h-full object-contain drop-shadow" />
+                <img src={safeMediaUrl(editing.photoUrl || editing.photo)} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-60" />
+                <img src={safeMediaUrl(editing.photoUrl || editing.photo)} alt="preview" className="relative max-w-full max-h-full object-contain drop-shadow" />
               </div>
             )}
             {liveDup && !forceDup && (

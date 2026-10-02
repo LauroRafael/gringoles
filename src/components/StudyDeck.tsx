@@ -5,11 +5,12 @@ import { useStore } from '../store/useStore';
 import { playEN, playPT, stopSpeak as stopAudio } from '../lib/speech';
 import { STRINGS } from '../lib/i18n';
 import { dueLabel } from '../lib/srs';
+import { safeMediaUrl } from '../lib/image';
 import type { Card } from '../types';
 
 function visiblePhoto(c: Card): string | undefined {
-  if (c.photoUrl && c.photoUrl.length > 0) return c.photoUrl;
-  return c.photo && c.photo.length > 0 ? c.photo : undefined;
+  if (c.photoUrl && c.photoUrl.length > 0) return safeMediaUrl(c.photoUrl);
+  return c.photo && c.photo.length > 0 ? safeMediaUrl(c.photo) : undefined;
 }
 
 const PILE_BADGE: Record<string, string> = {

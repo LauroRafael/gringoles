@@ -58,6 +58,17 @@ function hasAlpha(ctx: CanvasRenderingContext2D, w: number, h: number): boolean 
   }
 }
 
+/** Blindagem anti "conteúdo misto": promove http:// -> https://.
+ * data:/blob:/https:/relativos passam intactos. Evita que foto antiga
+ * (ex.: card salvo offline com URL http) derrube o cadeado 🔒 e o PWA. */
+export function safeMediaUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  const s = u.trim();
+  if (s.length === 0) return undefined;
+  if (/^http:\/\//i.test(s)) return `https://${s.slice(7)}`;
+  return s;
+}
+
 export function storageUsage(): { usedKB: number; quotaKB: number; pct: number } {
   let used = 0;
   try {
