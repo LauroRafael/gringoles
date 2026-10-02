@@ -263,7 +263,7 @@ O Gringolês é um **PWA instalável**: funciona em tela cheia, abre offline e a
 - **Offline:** o modo demo e a tela do app funcionam sem internet; logado, o banner 📴 avisa e a **fila outbox v2 sincroniza sozinha** ao reconectar (foco/online/visível + pull-to-refresh, com backoff e botão `Tentar agora`) sem duplicar — fotos pendentes sobem junto.
 - **Atualizações:** banner *"Nova versão disponível → Atualizar"* — nunca recarrega no meio do estudo.
 
-Detalhes técnicos: `vite-plugin-pwa` (Workbox, `registerType: prompt`), precache do app shell, `NetworkFirst` p/ Supabase, `StaleWhileRevalidate` p/ dicionário, manifest em `public/manifest.webmanifest`, ícones em `public/icons/`, deploy via `netlify.toml`.
+Detalhes técnicos: `vite-plugin-pwa` (Workbox, `registerType: prompt`), precache do app shell, `NetworkFirst` p/ Supabase, `StaleWhileRevalidate` p/ dicionário, manifest em `public/manifest.webmanifest`, ícones em `public/icons/`, deploy via `vercel.json`.
 
 ## 🏗️ Build
 
