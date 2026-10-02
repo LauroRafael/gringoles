@@ -280,6 +280,41 @@ export function bankRowToCard(row: BankRow, index: number, now = Date.now()): Ca
   };
 }
 
+/**
+ * Preenche passado/futuro vazios a partir do word_bank (match por EN normalizado).
+ * Rede de segurança p/ cards vindos do demo/seed/import — que nascem só com presente.
+ * Nunca sobrescreve tempos já preenchidos; falha silenciosa (retorna original).
+ */
+export async function enrichCardsWithBankTenses(cards: Card[]): Promise<Card[]> {
+  const missing = cards.filter((c) => !c.examplePastEN?.trim() || !c.exampleFutureEN?.trim());
+  if (missing.length === 0) return cards;
+  try {
+    const db = mustDb();
+    const { data, error } = await db
+      .from('word_bank')
+      .select('en,example_past_en,example_past_pt,example_future_en,example_future_pt');
+    if (error || !data) return cards;
+    const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+    const byEN = new Map(
+      (data as BankRow[]).map((r) => [norm(r.en), r]),
+    );
+    return cards.map((c) => {
+      if (c.examplePastEN?.trim() && c.exampleFutureEN?.trim()) return c;
+      const hit = byEN.get(norm(c.en));
+      if (!hit) return c;
+      return {
+        ...c,
+        examplePastEN: c.examplePastEN?.trim() ? c.examplePastEN : (hit.example_past_en ?? ''),
+        examplePastPT: c.examplePastPT?.trim() ? c.examplePastPT : (hit.example_past_pt ?? ''),
+        exampleFutureEN: c.exampleFutureEN?.trim() ? c.exampleFutureEN : (hit.example_future_en ?? ''),
+        exampleFuturePT: c.exampleFuturePT?.trim() ? c.exampleFuturePT : (hit.example_future_pt ?? ''),
+      };
+    });
+  } catch {
+    return cards;
+  }
+}
+
 export interface AppSettings {
   new_per_day: number;
   auto_new_per_day: number;

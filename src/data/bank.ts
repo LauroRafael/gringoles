@@ -40,7 +40,7 @@ export function pickDailyWords(existing: Card[], count: number): (BankEntry & { 
 }
 
 export function materializeBankEntry(
-  entry: BankEntry & { bankId: string },
+  entry: BankEntry & { bankId: string } & Partial<Record<'examplePastEN' | 'examplePastPT' | 'exampleFutureEN' | 'exampleFuturePT', string>>,
   index: number,
   now = Date.now(),
 ): Card {
@@ -52,6 +52,10 @@ export function materializeBankEntry(
     ipa: entry.ipa,
     exampleEN: entry.exampleEN,
     examplePT: entry.examplePT,
+    examplePastEN: entry.examplePastEN ?? '',
+    examplePastPT: entry.examplePastPT ?? '',
+    exampleFutureEN: entry.exampleFutureEN ?? '',
+    exampleFuturePT: entry.exampleFuturePT ?? '',
     emoji: entry.emoji,
     gradient: GRADIENTS[(WORD_BANK.indexOf(entry) + index) % GRADIENTS.length],
     category: entry.category,

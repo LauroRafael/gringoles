@@ -11,6 +11,7 @@ import { passwordIssue } from '../lib/password';
 import {
   bankRowToCard,
   deleteCardRow,
+  enrichCardsWithBankTenses,
   fetchAppSettings,
   fetchBankBatch,
   generateBankBatch,
@@ -1026,8 +1027,13 @@ export const useStore = create<Store>()(
         const s = get();
         if (!s.user || !supabase) return 0;
         const stash = plausibleStash(readStash());
-        const demoCards = (stash?.cards ?? []).filter((c) => c.en.trim() && c.pt.trim());
+        let demoCards = (stash?.cards ?? []).filter((c) => c.en.trim() && c.pt.trim());
         if (demoCards.length === 0) return 0;
+        // Seed/demo nasce só com presente — enriquece com os tempos do word_bank
+        // antes de inserir, senão o usuário full fica com botões apagados p/ sempre.
+        try {
+          demoCards = await enrichCardsWithBankTenses(demoCards);
+        } catch { /* segue com o original */ }
         try {
           const n = await insertCardRows(s.user.id, demoCards);
           const ws = await loadWorkspace(s.user.id);

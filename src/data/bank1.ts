@@ -1,6 +1,8 @@
 export interface BankEntry {
   en: string; pt: string; phoneticBR: string; ipa: string;
   exampleEN: string; examplePT: string; emoji: string; category: string;
+  examplePastEN?: string; examplePastPT?: string;
+  exampleFutureEN?: string; exampleFuturePT?: string;
 }
 
 // Essenciais, Casa, Comida, Viagem, Verbos — sem repetir o seed inicial.
