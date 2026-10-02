@@ -258,7 +258,7 @@ src/
 
 O Gringolês é um **PWA instalável**: funciona em tela cheia, abre offline e avisa quando há versão nova.
 
-- **Android (Chrome):** abra https://gringoles.lartecnologia.com.br → menu ⋮ → **Instalar app**.
+- **Android (Chrome):** abra https://gringoles.com.br → menu ⋮ → **Instalar app**.
 - **iPhone (Safari):** Compartilhar → **Adicionar à Tela de Início** (o app mostra esse guia sozinho).
 - **Offline:** o modo demo e a tela do app funcionam sem internet; logado, o banner 📴 avisa e a **fila outbox v2 sincroniza sozinha** ao reconectar (foco/online/visível + pull-to-refresh, com backoff e botão `Tentar agora`) sem duplicar — fotos pendentes sobem junto.
 - **Atualizações:** banner *"Nova versão disponível → Atualizar"* — nunca recarrega no meio do estudo.
