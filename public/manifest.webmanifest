@@ -4,6 +4,7 @@
   "description": "Aprenda inglês com flashcards de swipe — com imagem, voz e pronúncia aportuguesada.",
   "lang": "pt-BR",
   "start_url": "/",
+  "id": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

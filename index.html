@@ -18,6 +18,16 @@
     <meta property="og:type" content="website" />
     <title>Gringolês — Aprenda Inglês</title>
     <script>
+      // Origem canônica: apex. www/duplo servindo o app em 2 origens quebra
+      // a identidade do PWA (start_url/scope) e some com o prompt de instalar.
+      try {
+        var h = window.location.hostname;
+        if (h === 'www.gringoles.com.br' || h === 'gringoles.lartecnologia.com.br') {
+          window.location.replace('https://gringoles.com.br' + window.location.pathname + window.location.search + window.location.hash);
+        }
+      } catch (e) {}
+    </script>
+    <script>
       try {
         var t = localStorage.getItem('gringoles-theme') || localStorage.getItem('anki-flow-theme');
         if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
