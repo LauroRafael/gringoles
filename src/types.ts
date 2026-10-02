@@ -11,8 +11,15 @@ export interface Card {
   phoneticBR: string;
   /** Alfabeto fonético internacional, ex: /ˈwɔːtər/ */
   ipa: string;
+  /** Frase de exemplo no PRESENTE simples (tempo principal — Quiz/áudio usam este). */
   exampleEN: string;
   examplePT: string;
+  /** Frase de exemplo no PASSADO simples (opcional — '' = não tem). */
+  examplePastEN?: string;
+  examplePastPT?: string;
+  /** Frase de exemplo no FUTURO simples (opcional — '' = não tem). */
+  exampleFutureEN?: string;
+  exampleFuturePT?: string;
   emoji: string;
   /** Foto enviada pelo usuário (dataURL). Se vazio, usa emoji + gradiente. */
   photo?: string;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BadgeCheck, Eye, Volume2, Turtle, X, Check } from 'lucide-react';
+import { Eye, Volume2, Turtle, X, Check } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { playEN, playPT, stopSpeak as stopAudio } from '../lib/speech';
 import { STRINGS } from '../lib/i18n';
@@ -21,7 +21,7 @@ const PILE_BADGE: Record<string, string> = {
 };
 
 export default function StudyDeck() {
-  const { cards, pileFilter, answer, setTab, setPileFilter, lang } = useStore();
+  const { cards, pileFilter, answer, setTab, lang } = useStore();
   const t = STRINGS[lang];
   const pileName = (p: string) =>
     p === 'new' ? t.pile_new : p === 'check' ? t.pile_check : p === 'study' ? t.pile_study
@@ -29,6 +29,7 @@ export default function StudyDeck() {
   const [flipped, setFlipped] = useState(false);
   const [leaving, setLeaving] = useState<'left' | 'right' | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
+  const [tense, setTense] = useState<'present' | 'past' | 'future'>('present');
 
   const queue = useMemo(() => {
     const sorted = [...cards].sort((a, b) => a.nextReviewAt - b.nextReviewAt || a.createdAt - b.createdAt);
@@ -83,6 +84,19 @@ export default function StudyDeck() {
     return () => window.removeEventListener('keydown', h);
   }, []);
 
+  // Tempos verbais do exemplo: reset para o presente a cada card novo.
+  const hasPast = Boolean(current?.examplePastEN?.trim() || current?.examplePastPT?.trim());
+  const hasFuture = Boolean(current?.exampleFutureEN?.trim() || current?.exampleFuturePT?.trim());
+  const curTense = tense === 'past' && !hasPast ? 'present' : tense === 'future' && !hasFuture ? 'present' : tense;
+  const ex = curTense === 'past'
+    ? { en: current?.examplePastEN ?? '', pt: current?.examplePastPT ?? '' }
+    : curTense === 'future'
+      ? { en: current?.exampleFutureEN ?? '', pt: current?.exampleFuturePT ?? '' }
+      : { en: current?.exampleEN ?? '', pt: current?.examplePT ?? '' };
+  useEffect(() => {
+    setTense('present');
+  }, [current?.id]);
+
   if (!current) {
     return (
       <div className="text-center py-16 animate-pop-in">
@@ -94,7 +108,7 @@ export default function StudyDeck() {
         <p className="text-slate-500 dark:text-slate-400 mt-2 max-w-sm mx-auto">
           {t.deck_box_done_sub}
         </p>
-        <div className="flex gap-2 justify-center mt-6 flex-wrap">
+        {/* <div className="flex gap-2 justify-center mt-6 flex-wrap">
           {(Object.keys(PILE_BADGE) as Array<import('../types').Pile>).map((p) => (
             <button
               key={p}
@@ -104,9 +118,9 @@ export default function StudyDeck() {
               {PILE_BADGE[p]}
             </button>
           ))}
-        </div>
+        </div> */}
         <div className="flex gap-2 justify-center mt-3 flex-wrap">
-          <button onClick={() => setTab('library')} className="px-4 py-2 rounded-xl bg-sapphire text-white font-bold hover:bg-celadon">{t.deck_view_all}</button>
+          {/* <button onClick={() => setTab('library')} className="px-4 py-2 rounded-xl bg-sapphire text-white font-bold hover:bg-celadon">{t.deck_view_all}</button> */}
           <button onClick={() => setTab('quiz')} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 font-bold">{t.deck_quiz}</button>
         </div>
         {sessionCount > 0 && <p className="mt-4 text-sm text-emerald-500 font-bold">+{sessionCount} {t.deck_session}</p>}
@@ -206,26 +220,46 @@ export default function StudyDeck() {
                   <p className="text-xs font-bold tracking-widest text-azure">{t.deck_back}</p>
                   <h2 className="text-3xl font-black">{current.pt}</h2>
                   <div className="bg-white/10 rounded-2xl p-3 mt-2 w-full">
-                    <p className="text-sm italic">"{current.exampleEN}"</p>
-                    <p className="text-sm text-slate-300 mt-1">{current.examplePT}</p>
+                    <div className="flex justify-center gap-1 mb-2" onClick={(e) => e.stopPropagation()}>
+                      {([['present', t.lib_tense_present, true], ['past', t.lib_tense_past, hasPast], ['future', t.lib_tense_future, hasFuture]] as const).map(
+                        ([key, label, ok]) => (
+                          <button
+                            key={key}
+                            onClick={() => ok && setTense(key)}
+                            disabled={!ok}
+                            title={!ok ? t.lib_tenses_missing : undefined}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-black transition ${
+                              curTense === key ? 'bg-white text-sapphire' : 'bg-white/10 text-white/80'
+                            } ${ok ? 'active:scale-95' : 'opacity-30'}`}
+                          >
+                            {label}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                    {!(hasPast || hasFuture) && (
+                      <p className="text-[10px] text-white/50 mb-2">⏱ {t.lib_tenses_missing}</p>
+                    )}
+                    <p className="text-sm italic">"{ex.en}"</p>
+                    <p className="text-sm text-slate-300 mt-1">{ex.pt}</p>
                   </div>
                   <div className="mt-2 flex flex-wrap justify-center gap-2" onClick={(e) => e.stopPropagation()}>
                     <button
-                      onClick={() => playEN(current.exampleEN, true)}
+                      onClick={() => playEN(ex.en, true)}
                       title={t.deck_ex_slow_title}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white text-slate-900 text-sm font-black hover:bg-slate-100 active:scale-95"
                     >
                       <Turtle size={16} /> {t.deck_ex_slow}
                     </button>
                     <button
-                      onClick={() => playEN(current.exampleEN)}
+                      onClick={() => playEN(ex.en)}
                       title={t.deck_ex_en}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white/15 text-sm font-bold active:scale-95"
                     >
                       🇺🇸 EN
                     </button>
                     <button
-                      onClick={() => playPT(current.examplePT)}
+                      onClick={() => playPT(ex.pt)}
                       title={t.deck_ex_pt}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white/15 text-sm font-bold active:scale-95"
                     >
@@ -254,33 +288,29 @@ export default function StudyDeck() {
         )}
       </div>
 
-      {/* Botões de resposta: ✅ avança 1 caixa, ❌ volta 1 (em Novas, ❌ mantém e marca vista) */}
-      <div className="flex items-center justify-center gap-3 sm:gap-4 mt-3 sm:mt-4">
+      {/* Respostas em pill com texto (compacto: sem legenda, sem scroll) */}
+      <div className="flex items-center justify-center gap-2 mt-3">
         <button
           onClick={() => respond(false)}
-          className="group w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
-          title={`${t.deck_prev} (←)`}
+          className="flex-1 max-w-44 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-rose-500 text-white text-sm font-black shadow-lg shadow-rose-500/40 hover:scale-105 active:scale-95 transition"
+          title={`${t.deck_prev} (←) · ${t.deck_fixes}`}
         >
-          <X size={26} strokeWidth={3} />
+          <X size={18} strokeWidth={3} /> {t.deck_prev}
         </button>
         <button
           onClick={() => setFlipped((f) => !f)}
-          className="px-3 py-2.5 sm:px-4 sm:py-3 rounded-2xl border border-slate-200 dark:border-white/10 text-sm font-bold inline-flex items-center gap-1 active:scale-95"
+          className="px-4 py-3 rounded-full border border-slate-200 dark:border-white/10 text-sm font-bold inline-flex items-center gap-1 active:scale-95"
           title={t.deck_turn_title}
         >
           <Eye size={16} /> {t.deck_turn}
         </button>
         <button
           onClick={() => respond(true)}
-          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 flex items-center justify-center hover:scale-110 active:scale-90 transition"
-          title={`${t.deck_advance} (→)`}
+          className="flex-1 max-w-44 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-emerald-500 text-white text-sm font-black shadow-lg shadow-emerald-500/40 hover:scale-105 active:scale-95 transition"
+          title={`${t.deck_advance} (→) · ${t.deck_sleeps}`}
         >
-          <Check size={26} strokeWidth={3} />
+          <Check size={18} strokeWidth={3} /> {t.deck_advance}
         </button>
-      </div>
-      <div className="flex items-center justify-center gap-3 mt-2 sm:mt-3 text-[11px] sm:text-xs">
-        <span className="inline-flex items-center gap-1 text-rose-500 font-bold"><X size={12} /> {t.deck_prev} · {t.deck_fixes}</span>
-        <span className="inline-flex items-center gap-1 text-emerald-500 font-bold"><BadgeCheck size={12} /> {t.deck_advance} · {t.deck_sleeps}</span>
       </div>
     </div>
   );

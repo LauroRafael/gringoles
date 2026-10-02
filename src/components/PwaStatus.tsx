@@ -85,7 +85,8 @@ export default function PwaStatus() {
         } catch {
           setSyncMsg(null);
         } finally {
-          window.setTimeout(() => setSyncMsg(null), 4000);
+          // Tempo generoso p/ leitura (8s) — antes sumia rápido demais.
+          window.setTimeout(() => setSyncMsg(null), 8000);
         }
       }
     };
