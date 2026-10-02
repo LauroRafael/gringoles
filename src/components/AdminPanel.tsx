@@ -257,8 +257,8 @@ export default function AdminPanel() {
   }, [visits]);
 
   return (
-    <div className="grid gap-4">
-      <div className="rounded-3xl p-5 bg-gradient-to-br from-prussian to-[#0a1c2c] text-white">
+    <div className="grid gap-4 min-w-0 max-w-full">
+      <div className="rounded-3xl p-5 bg-gradient-to-br from-prussian to-[#0a1c2c] text-white min-w-0 max-w-full overflow-hidden">
         <p className="font-black text-sm inline-flex items-center gap-1"><ShieldCheck size={15} /> {t.adm_title}</p>
         <div className="flex gap-5 mt-3 flex-wrap">
           <div><p className="text-2xl font-black inline-flex items-center gap-1"><Users size={18} />{users.length}</p><p className="text-xs opacity-70">{t.adm_users}</p></div>
@@ -270,14 +270,14 @@ export default function AdminPanel() {
 
       {msg && <div className="px-4 py-2.5 rounded-2xl bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20 text-sm font-bold animate-pop-in">{msg}</div>}
 
-      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
+      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 min-w-0 max-w-full overflow-hidden">
         <p className="font-black text-sm mb-1">📊 {t.mon_title}</p>
         <p className="text-xs text-slate-500 mb-3">{t.mon_sub}</p>
         {visits.length === 0 ? (
           <p className="text-sm text-slate-500">{t.mon_empty}</p>
         ) : (
           <>
-            <div className="flex gap-5 flex-wrap">
+            <div className="flex flex-wrap gap-x-5 gap-y-3">
               <div><p className="text-2xl font-black inline-flex items-center gap-1"><Eye size={18} />{mon.total}{visitsCapped ? '+' : ''}</p><p className="text-xs opacity-70">{t.mon_total}</p></div>
               <div><p className="text-2xl font-black inline-flex items-center gap-1"><Users size={18} />{mon.uniq}{visitsCapped ? '+' : ''}</p><p className="text-xs opacity-70">{t.mon_unique}</p></div>
               <div><p className="text-2xl font-black inline-flex items-center gap-1"><UserCheck size={18} />{mon.logged}</p><p className="text-xs opacity-70">{t.mon_logged}</p></div>
@@ -285,15 +285,15 @@ export default function AdminPanel() {
               <div><p className="text-2xl font-black">🗓️ {mon.weekN}</p><p className="text-xs opacity-70">{t.mon_7d}</p></div>
             </div>
             <p className="text-xs font-bold mt-4 mb-1">{t.mon_14d}</p>
-            <div className="flex items-end gap-1 h-24">
+            <div className="flex items-end gap-1 h-24 min-w-0 max-w-full overflow-hidden">
               {mon.days.map((d) => (
-                <div key={d.key} title={`${d.label}: ${d.n}`} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0">
-                  <span className="text-[10px] font-black tabular-nums">{d.n > 0 ? d.n : ''}</span>
+                <div key={d.key} title={`${d.label}: ${d.n}`} className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1 overflow-hidden">
+                  <span className="text-[10px] font-black tabular-nums whitespace-nowrap">{d.n > 0 ? d.n : ''}</span>
                   <div
                     className="w-full rounded-t-md bg-gradient-to-t from-sapphire to-carolina min-h-1"
                     style={{ height: `${Math.max(4, (d.n / mon.max) * 64)}px`, opacity: d.n > 0 ? 1 : 0.25 }}
                   />
-                  <span className="text-[9px] text-slate-400 tabular-nums">{d.label}</span>
+                  <span className="text-[9px] text-slate-400 tabular-nums whitespace-nowrap">{d.label}</span>
                 </div>
               ))}
             </div>
@@ -302,9 +302,9 @@ export default function AdminPanel() {
         )}
       </div>
 
-      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
+      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 min-w-0 max-w-full overflow-hidden">
         <p className="font-black text-sm mb-3">{t.adm_cfg}</p>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3 text-sm min-w-0 max-w-full">
           <label className="font-bold">{t.adm_cfg_queue}
             <input type="number" min={5} max={100} value={newPerDay} onChange={(e) => setNewPerDay(Number(e.target.value) || 20)} className="ml-2 w-20 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
           </label>
@@ -320,7 +320,7 @@ export default function AdminPanel() {
             {t.adm_cfg_auto}
             <input type="number" min={0} max={30} value={autoNewPerDay} onChange={(e) => setAutoNewPerDay(Math.max(0, Number(e.target.value) || 0))} className="w-16 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" />
           </label>
-          <label className="font-bold inline-flex items-center gap-2">⏰ {t.adm_cfg_times}
+          <label className="font-bold flex flex-wrap items-center gap-2 min-w-0 max-w-full">⏰ {t.adm_cfg_times}
             {[0, 1].map((i) => (
               <input
                 key={i}
@@ -331,7 +331,7 @@ export default function AdminPanel() {
                   next[i] = e.target.value;
                   setAutoAddTimes(next.filter(Boolean));
                 }}
-                className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent"
+                className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent min-w-0 max-w-full"
               />
             ))}
           </label>
@@ -342,7 +342,7 @@ export default function AdminPanel() {
         </div>
       </div>
 
-      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
+      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 min-w-0 max-w-full overflow-hidden">
         <p className="font-black text-sm mb-1">{t.adm_add_user}</p>
         <p className="text-xs text-slate-500 mb-3">{t.adm_add_sub}</p>
         <div className="grid sm:grid-cols-4 gap-2 text-xs font-bold">
@@ -365,13 +365,13 @@ export default function AdminPanel() {
         </div>
       </div>
 
-      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
+      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 min-w-0 max-w-full overflow-hidden">
         <p className="font-black text-sm mb-3">{t.adm_users_title}</p>
-        <div className="grid gap-2">
+        <div className="grid gap-2 min-w-0 max-w-full">
           {users.map((u) => (
-            <div key={u.id} className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl text-sm ${u.is_blocked ? 'bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20' : 'bg-slate-50 dark:bg-white/5'}`}>
-              <span className="font-black">{u.display_name || '(sem nome)'}</span>
-              {u.email && <span className="text-xs text-slate-500 truncate max-w-52" title={u.email}>✉️ {u.email}</span>}
+            <div key={u.id} className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl text-sm min-w-0 max-w-full overflow-hidden ${u.is_blocked ? 'bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20' : 'bg-slate-50 dark:bg-white/5'}`}>
+              <span className="font-black min-w-0 break-words">{u.display_name || '(sem nome)'}</span>
+              {u.email && <span className="text-xs text-slate-500 truncate max-w-full min-w-0" title={u.email}>✉️ {u.email}</span>}
               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-sapphire text-white' : 'bg-slate-200 dark:bg-white/10'}`}>{u.role}</span>
               {u.is_blocked && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-500 text-white">⛔ {t.adm_blocked}</span>}
               {u.must_change_password && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-600 dark:text-amber-300">🔑 {t.adm_must_change}</span>}
@@ -403,21 +403,20 @@ export default function AdminPanel() {
         <p className="text-[11px] text-slate-400 mt-2">{t.adm_del_note}</p>
       </div>
 
-      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
-        <div className="flex items-center gap-2 mb-3">
-          <p className="font-black text-sm flex-1">{t.adm_bank_title}</p>
-          <button onClick={() => setEditingBank({ isNew: true, en: '', pt: '', emoji: '📚', category: 'Banco' })} className="inline-flex items-center gap-1 text-xs font-black px-3 py-2 rounded-xl bg-sapphire text-white"><Plus size={13} /> {t.adm_bank_new}</button>
+      <div className="rounded-3xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 min-w-0 max-w-full overflow-hidden">
+        <div className="flex items-center gap-2 mb-3 min-w-0">
+          <p className="font-black text-sm flex-1 min-w-0 truncate">{t.adm_bank_title}</p>
+          <button onClick={() => setEditingBank({ isNew: true, en: '', pt: '', emoji: '📚', category: 'Banco' })} className="shrink-0 inline-flex items-center gap-1 text-xs font-black px-3 py-2 rounded-xl bg-sapphire text-white"><Plus size={13} /> {t.adm_bank_new}</button>
         </div>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.adm_bank_search} className="w-full mb-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm" />
-        <div className="grid gap-1.5 max-h-96 overflow-y-auto pr-1">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.adm_bank_search} className="w-full mb-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-sm min-w-0 max-w-full" />
+        <div className="grid gap-1.5 max-h-96 overflow-y-auto overflow-x-hidden pr-1 min-w-0 max-w-full">
           {filteredBank.slice(0, 120).map((b) => (
-            <div key={b.bank_id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm ${b.active ? 'bg-slate-50 dark:bg-white/5' : 'opacity-50 bg-slate-100 dark:bg-white/[0.02]'}`}>
-              <span className="text-xl">{b.emoji}</span>
-              <span className="font-bold">{b.en}</span>
-              <span className="text-slate-500 text-xs truncate">{b.pt} · {b.category}</span>
-              <span className="flex-1" />
-              <button onClick={() => setEditingBank({ ...b })} title={t.adm_bank_edit} className="p-1.5 rounded-lg border border-slate-200 dark:border-white/10"><Pencil size={13} /></button>
-              <button onClick={() => toggleBank(b)} title={b.active ? t.adm_bank_off : t.adm_bank_on} className="p-1.5 rounded-lg border border-slate-200 dark:border-white/10">
+            <div key={b.bank_id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm min-w-0 max-w-full overflow-hidden ${b.active ? 'bg-slate-50 dark:bg-white/5' : 'opacity-50 bg-slate-100 dark:bg-white/[0.02]'}`}>
+              <span className="text-xl shrink-0">{b.emoji}</span>
+              <span className="font-bold truncate min-w-0 max-w-full">{b.en}</span>
+              <span className="text-slate-500 text-xs truncate flex-1 min-w-0">{b.pt} · {b.category}</span>
+              <button onClick={() => setEditingBank({ ...b })} title={t.adm_bank_edit} className="shrink-0 p-1.5 rounded-lg border border-slate-200 dark:border-white/10"><Pencil size={13} /></button>
+              <button onClick={() => toggleBank(b)} title={b.active ? t.adm_bank_off : t.adm_bank_on} className="shrink-0 p-1.5 rounded-lg border border-slate-200 dark:border-white/10">
                 <Power size={13} className={b.active ? 'text-emerald-500' : 'text-slate-400'} />
               </button>
             </div>
@@ -459,9 +458,9 @@ export default function AdminPanel() {
 
       {editingBank && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setEditingBank(null)}>
-          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 animate-pop-in" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full sm:max-w-md max-h-[90dvh] overflow-y-auto bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 animate-pop-in" onClick={(e) => e.stopPropagation()}>
             <p className="font-black mb-3">{editingBank.isNew ? t.adm_bank_new_title : `${t.adm_bank_edit_title} ${editingBank.en}`}</p>
-            <div className="grid grid-cols-2 gap-2 text-xs font-bold">
+            <div className="grid grid-cols-2 gap-2 text-xs font-bold min-w-0 max-w-full [&_label]:min-w-0 [&_label]:max-w-full [&_input]:min-w-0 [&_input]:max-w-full">
               <label>EN*<input value={editingBank.en ?? ''} onChange={(e) => setEditingBank({ ...editingBank, en: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
               <label>PT*<input value={editingBank.pt ?? ''} onChange={(e) => setEditingBank({ ...editingBank, pt: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>
               <label>{t.adm_bank_f_say}<input value={editingBank.phonetic_br ?? ''} onChange={(e) => setEditingBank({ ...editingBank, phonetic_br: e.target.value })} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent" /></label>

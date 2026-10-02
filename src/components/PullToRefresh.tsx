@@ -117,36 +117,40 @@ export default function PullToRefresh() {
   const progress = Math.min(1, pull / THRESHOLD);
 
   return (
-    <div className="fixed inset-x-0 top-0 z-50 flex flex-col items-center pointer-events-none select-none">
-      {(refreshing || pull > 8) && (
-        <div
-          className="mt-3 w-10 h-10 rounded-full bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-white/10 flex items-center justify-center"
-          style={{
-            transform: refreshing ? undefined : `scale(${0.6 + 0.4 * progress})`,
-            opacity: refreshing ? 1 : 0.4 + 0.6 * progress,
-          }}
-        >
-          {refreshing ? (
-            <Loader2 size={20} className="animate-spin text-celadon" />
-          ) : (
-            <ArrowDown
-              size={20}
-              className="text-sapphire dark:text-carolina transition-transform"
-              style={{ transform: `rotate(${progress >= 1 ? 180 : 0}deg)` }}
-            />
-          )}
-        </div>
-      )}
+    <>
+      <div className="fixed inset-x-0 top-0 z-50 flex flex-col items-center pointer-events-none select-none pt-[env(safe-area-inset-top)]">
+        {(refreshing || pull > 8) && (
+          <div
+            className="mt-3 w-10 h-10 rounded-full bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-white/10 flex items-center justify-center"
+            style={{
+              transform: refreshing ? undefined : `scale(${0.6 + 0.4 * progress})`,
+              opacity: refreshing ? 1 : 0.4 + 0.6 * progress,
+            }}
+          >
+            {refreshing ? (
+              <Loader2 size={20} className="animate-spin text-celadon" />
+            ) : (
+              <ArrowDown
+                size={20}
+                className="text-sapphire dark:text-carolina transition-transform"
+                style={{ transform: `rotate(${progress >= 1 ? 180 : 0}deg)` }}
+              />
+            )}
+          </div>
+        )}
+        {!refreshing && !result && pull > 8 && (
+          <div className="mt-1.5 text-[11px] font-black text-slate-500 dark:text-slate-300 drop-shadow">
+            {progress >= 1 ? t.ptr_release : t.ptr_pull}
+          </div>
+        )}
+      </div>
       {result && (
-        <div className="mt-2 px-3 py-1.5 rounded-full bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-900 text-xs font-black shadow-lg animate-pop-in">
-          {result.includes('✓') ? <span className="inline-flex items-center gap-1"><Check size={13} />{result.replace('✓ ', '')}</span> : result}
+        <div className="fixed inset-x-0 z-50 flex justify-center px-4 pointer-events-none select-none bottom-[calc(6.5rem+env(safe-area-inset-bottom))]">
+          <div className="px-4 py-2 rounded-full bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-900 text-xs font-black shadow-xl animate-toast-up">
+            {result.includes('✓') ? <span className="inline-flex items-center gap-1"><Check size={13} />{result.replace('✓ ', '')}</span> : result}
+          </div>
         </div>
       )}
-      {!refreshing && !result && pull > 8 && (
-        <div className="mt-1.5 text-[11px] font-black text-slate-500 dark:text-slate-300 drop-shadow">
-          {progress >= 1 ? t.ptr_release : t.ptr_pull}
-        </div>
-      )}
-    </div>
+    </>
   );
 }

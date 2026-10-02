@@ -64,3 +64,10 @@ body {
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 .animate-pop-in { animation: pop-in 0.25s ease-out; }
+
+/* Toast inferior (ex.: "Tudo em dia"): sobe de baixo para cima */
+@keyframes toast-up {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-toast-up { animation: toast-up 0.25s ease-out; }
